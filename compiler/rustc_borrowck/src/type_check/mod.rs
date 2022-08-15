@@ -5,16 +5,15 @@ use std::{fmt, iter, mem};
 
 use either::Either;
 
-use hir::OpaqueTyOrigin;
 use rustc_data_structures::frozen::Frozen;
 use rustc_data_structures::fx::{FxHashMap, FxHashSet};
-use rustc_data_structures::vec_map::VecMap;
 use rustc_hir as hir;
 use rustc_hir::def::DefKind;
 use rustc_hir::def_id::LocalDefId;
 use rustc_hir::lang_items::LangItem;
 use rustc_index::vec::{Idx, IndexVec};
 use rustc_infer::infer::canonical::QueryRegionConstraints;
+use rustc_infer::infer::opaque_types::{OpaqueTypeDecl, OpaqueTypeMap};
 use rustc_infer::infer::outlives::env::RegionBoundPairs;
 use rustc_infer::infer::region_constraints::RegionConstraintData;
 use rustc_infer::infer::type_variable::{TypeVariableOrigin, TypeVariableOriginKind};
@@ -30,8 +29,8 @@ use rustc_middle::ty::cast::CastTy;
 use rustc_middle::ty::subst::{GenericArgKind, SubstsRef, UserSubsts};
 use rustc_middle::ty::visit::TypeVisitable;
 use rustc_middle::ty::{
-    self, CanonicalUserTypeAnnotation, CanonicalUserTypeAnnotations, OpaqueHiddenType,
-    OpaqueTypeKey, RegionVid, ToPredicate, Ty, TyCtxt, UserType, UserTypeAnnotationIndex,
+    self, CanonicalUserTypeAnnotation, CanonicalUserTypeAnnotations, RegionVid, ToPredicate, Ty,
+    TyCtxt, UserType, UserTypeAnnotationIndex,
 };
 use rustc_span::def_id::CRATE_DEF_ID;
 use rustc_span::{Span, DUMMY_SP};
@@ -200,46 +199,8 @@ pub(crate) fn type_check<'mir, 'tcx>(
             );
 
             translate_outlives_facts(&mut cx);
-            let opaque_type_values =
-                infcx.inner.borrow_mut().opaque_type_storage.take_opaque_types();
 
-            opaque_type_values
-                .into_iter()
-                .map(|(opaque_type_key, decl)| {
-                    cx.fully_perform_op(
-                        Locations::All(body.span),
-                        ConstraintCategory::OpaqueType,
-                        CustomTypeOp::new(
-                            |infcx| {
-                                infcx.register_member_constraints(
-                                    param_env,
-                                    opaque_type_key,
-                                    decl.hidden_type.ty,
-                                    decl.hidden_type.span,
-                                );
-                                Ok(InferOk { value: (), obligations: vec![] })
-                            },
-                            || "opaque_type_map".to_string(),
-                        ),
-                    )
-                    .unwrap();
-                    let mut hidden_type = infcx.resolve_vars_if_possible(decl.hidden_type);
-                    trace!(
-                        "finalized opaque type {:?} to {:#?}",
-                        opaque_type_key,
-                        hidden_type.ty.kind()
-                    );
-                    if hidden_type.has_infer_types_or_consts() {
-                        infcx.tcx.sess.delay_span_bug(
-                            decl.hidden_type.span,
-                            &format!("could not resolve {:#?}", hidden_type.ty.kind()),
-                        );
-                        hidden_type.ty = infcx.tcx.ty_error();
-                    }
-
-                    (opaque_type_key, (hidden_type, decl.origin))
-                })
-                .collect()
+            cx.finalize_opaque_types()
         },
     );
 
@@ -908,8 +869,7 @@ struct BorrowCheckContext<'a, 'tcx> {
 pub(crate) struct MirTypeckResults<'tcx> {
     pub(crate) constraints: MirTypeckRegionConstraints<'tcx>,
     pub(crate) universal_region_relations: Frozen<UniversalRegionRelations<'tcx>>,
-    pub(crate) opaque_type_values:
-        VecMap<OpaqueTypeKey<'tcx>, (OpaqueHiddenType<'tcx>, OpaqueTyOrigin)>,
+    pub(crate) opaque_type_values: OpaqueTypeMap<'tcx>,
 }
 
 /// A collection of region constraints that must be satisfied for the
@@ -2679,6 +2639,67 @@ impl<'a, 'tcx> TypeChecker<'a, 'tcx> {
             self.check_terminator(&body, block_data.terminator(), location);
             self.check_iscleanup(&body, block_data);
         }
+    }
+
+    /// Generates member constraints for the opaque types found so far.
+    /// Returns a map to their hidden types.
+    fn finalize_opaque_types(&mut self) -> OpaqueTypeMap<'tcx> {
+        let opaque_type_values =
+            self.infcx.inner.borrow_mut().opaque_type_storage.take_opaque_types();
+
+        opaque_type_values
+            .into_iter()
+            .map(|(opaque_type_key, decl)| {
+                let param_env = self.param_env;
+                self.fully_perform_op(
+                    Locations::All(self.body.span),
+                    ConstraintCategory::OpaqueType,
+                    CustomTypeOp::new(
+                        |infcx| {
+                            infcx.register_member_constraints(
+                                param_env,
+                                opaque_type_key,
+                                decl.hidden_type.ty,
+                                decl.hidden_type.span,
+                            );
+                            Ok(InferOk { value: (), obligations: vec![] })
+                        },
+                        || "opaque_type_map".to_string(),
+                    ),
+                )
+                .unwrap();
+                let mut hidden_type = self.infcx.resolve_vars_if_possible(decl.hidden_type);
+                trace!(
+                    "finalized opaque type {:?} to {:#?}",
+                    opaque_type_key,
+                    hidden_type.ty.kind()
+                );
+                if hidden_type.has_infer_types_or_consts() {
+                    self.infcx.tcx.sess.delay_span_bug(
+                        decl.hidden_type.span,
+                        &format!("could not resolve {:#?}", hidden_type.ty.kind()),
+                    );
+                    hidden_type.ty = self.infcx.tcx.ty_error();
+                }
+
+                // Convert all regions to nll vars.
+                let (opaque_type_key, hidden_type) =
+                    self.infcx.tcx.fold_regions((opaque_type_key, hidden_type), |region, _| {
+                        match region.kind() {
+                            ty::ReVar(_) => region,
+                            ty::RePlaceholder(placeholder) => self
+                                .borrowck_context
+                                .constraints
+                                .placeholder_region(self.infcx, placeholder),
+                            _ => self.infcx.tcx.mk_region(ty::ReVar(
+                                self.borrowck_context.universal_regions.to_region_vid(region),
+                            )),
+                        }
+                    });
+
+                (opaque_type_key, OpaqueTypeDecl { hidden_type, ..decl })
+            })
+            .collect()
     }
 }
 

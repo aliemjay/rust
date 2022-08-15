@@ -167,7 +167,23 @@ pub(crate) struct RegionDefinition<'tcx> {
 
     /// If this is 'static or an early-bound region, then this is
     /// `Some(X)` where `X` is the name of the region.
+    ///
+    /// Use the method `Self::external_name` for more flexibility.
     pub(crate) external_name: Option<ty::Region<'tcx>>,
+}
+
+impl<'tcx> RegionDefinition<'tcx> {
+    /// Gets the name of a universal region (including placeholders).
+    /// Returns `None` if this is an existential variable.
+    pub fn external_name(&self, tcx: TyCtxt<'tcx>) -> Option<ty::Region<'tcx>> {
+        match self.origin {
+            NllRegionVariableOrigin::FreeRegion => self.external_name,
+            NllRegionVariableOrigin::Placeholder(placeholder) => {
+                Some(tcx.mk_region(ty::RePlaceholder(placeholder)))
+            }
+            NllRegionVariableOrigin::Existential { .. } => None,
+        }
+    }
 }
 
 /// N.B., the variants in `Cause` are intentionally ordered. Lower
@@ -712,16 +728,28 @@ impl<'tcx> RegionInferenceContext<'tcx> {
             *c_r = self.scc_representatives[scc];
         }
 
-        // The 'member region' in a member constraint is part of the
-        // hidden type, which must be in the root universe. Therefore,
-        // it cannot have any placeholders in its value.
-        assert!(self.scc_universes[scc] == ty::UniverseIndex::ROOT);
-        debug_assert!(
-            self.scc_values.placeholders_contained_in(scc).next().is_none(),
-            "scc {:?} in a member constraint has placeholder value: {:?}",
-            scc,
-            self.scc_values.region_value_str(scc),
-        );
+        // The 'member region' may have a placeholder region in its value.
+        // Consider the inner opaque type `impl Sized` in:
+        // `fn test() -> impl for<'a> Trait<'a, Ty = impl Sized + 'a>`.
+        //  Here choice_regions = ['static, Placeholder('a, U1)].
+        if self.scc_universes[scc] != ty::UniverseIndex::ROOT {
+            let Some(&choice) = choice_regions
+                .iter()
+                .find(|&&choice| self.eval_equal(choice, self.scc_representatives[scc]))
+            else {
+                debug!("failed higher-ranked member constraint");
+                return false;
+            };
+
+            self.member_constraints_applied.push(AppliedMemberConstraint {
+                member_region_scc: scc,
+                min_choice: choice,
+                member_constraint_index,
+            });
+
+            debug!(?choice, "higher-ranked");
+            return true;
+        }
 
         // The existing value for `scc` is a lower-bound. This will
         // consist of some set `{P} + {LB}` of points `{P}` and
@@ -1358,6 +1386,14 @@ impl<'tcx> RegionInferenceContext<'tcx> {
             );
 
             return self.eval_outlives(sup_region, self.universal_regions.fr_static);
+        }
+
+        // Check `sup_region` contains all the placeholder regions in `sub_region`.
+        if !self.scc_values.contains_placeholders(sup_region_scc, sub_region_scc) {
+            debug!(
+                "eval_outlives: returning false because sub region contains a placeholder region not present in super"
+            );
+            return false;
         }
 
         // Both the `sub_region` and `sup_region` consist of the union
