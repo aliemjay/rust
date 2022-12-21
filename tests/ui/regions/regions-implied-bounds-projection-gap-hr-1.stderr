@@ -9,6 +9,7 @@ help: consider restricting type parameter `T`
 LL | fn callee<'x, 'y, T: for<'z> Trait2<'y, 'z>>(t: &'x dyn for<'z> Trait1< <T as Trait2<'y, 'z>>::Foo >)
    |                    ++++++++++++++++++++++++
 
+<<<<<<< HEAD:tests/ui/regions/regions-implied-bounds-projection-gap-hr-1.stderr
 error[E0277]: the trait bound `for<'z> T: Trait2<'y, 'z>` is not satisfied
   --> $DIR/regions-implied-bounds-projection-gap-hr-1.rs:21:1
    |
@@ -25,5 +26,8 @@ LL | fn callee<'x, 'y, T: for<'z> Trait2<'y, 'z>>(t: &'x dyn for<'z> Trait1< <T 
    |                    ++++++++++++++++++++++++
 
 error: aborting due to 2 previous errors
+=======
+error: aborting due to previous error
+>>>>>>> 53d52f3c57 (implied bounds: normalize in the proper param_env):src/test/ui/regions/regions-implied-bounds-projection-gap-hr-1.stderr
 
 For more information about this error, try `rustc --explain E0277`.

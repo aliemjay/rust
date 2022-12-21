@@ -1,8 +1,15 @@
 error[E0495]: cannot infer an appropriate lifetime for lifetime parameter `'d` due to conflicting requirements
+<<<<<<< HEAD:tests/ui/nll/normalization-bounds-error.stderr
   --> $DIR/normalization-bounds-error.rs:12:31
    |
 LL | fn visit_seq<'d, 'a: 'd>() -> <&'a () as Visitor<'d>>::Value {}
    |                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+=======
+  --> $DIR/normalization-bounds-error.rs:12:4
+   |
+LL | fn visit_seq<'d, 'a: 'd>() -> <&'a () as Visitor<'d>>::Value {}
+   |    ^^^^^^^^^
+>>>>>>> 53d52f3c57 (implied bounds: normalize in the proper param_env):src/test/ui/nll/normalization-bounds-error.stderr
    |
 note: first, the lifetime cannot outlive the lifetime `'d` as defined here...
   --> $DIR/normalization-bounds-error.rs:12:14
@@ -15,10 +22,17 @@ note: ...but the lifetime must also be valid for the lifetime `'a` as defined he
 LL | fn visit_seq<'d, 'a: 'd>() -> <&'a () as Visitor<'d>>::Value {}
    |                  ^^
 note: ...so that the types are compatible
+<<<<<<< HEAD:tests/ui/nll/normalization-bounds-error.stderr
   --> $DIR/normalization-bounds-error.rs:12:31
    |
 LL | fn visit_seq<'d, 'a: 'd>() -> <&'a () as Visitor<'d>>::Value {}
    |                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+=======
+  --> $DIR/normalization-bounds-error.rs:12:4
+   |
+LL | fn visit_seq<'d, 'a: 'd>() -> <&'a () as Visitor<'d>>::Value {}
+   |    ^^^^^^^^^
+>>>>>>> 53d52f3c57 (implied bounds: normalize in the proper param_env):src/test/ui/nll/normalization-bounds-error.stderr
    = note: expected `Visitor<'d>`
               found `Visitor<'_>`
 

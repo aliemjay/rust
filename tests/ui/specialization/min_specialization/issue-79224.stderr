@@ -1,8 +1,15 @@
 error[E0277]: the trait bound `B: Clone` is not satisfied
+<<<<<<< HEAD:tests/ui/specialization/min_specialization/issue-79224.stderr
   --> $DIR/issue-79224.rs:18:29
    |
 LL | impl<B: ?Sized> Display for Cow<'_, B> {
    |                             ^^^^^^^^^^ the trait `Clone` is not implemented for `B`
+=======
+  --> $DIR/issue-79224.rs:18:17
+   |
+LL | impl<B: ?Sized> Display for Cow<'_, B> {
+   |                 ^^^^^^^ the trait `Clone` is not implemented for `B`
+>>>>>>> 53d52f3c57 (implied bounds: normalize in the proper param_env):src/test/ui/specialization/min_specialization/issue-79224.stderr
    |
    = note: required for `B` to implement `ToOwned`
 help: consider further restricting this bound
@@ -11,7 +18,11 @@ LL | impl<B: ?Sized + std::clone::Clone> Display for Cow<'_, B> {
    |                +++++++++++++++++++
 
 error[E0277]: the trait bound `B: Clone` is not satisfied
+<<<<<<< HEAD:tests/ui/specialization/min_specialization/issue-79224.stderr
   --> $DIR/issue-79224.rs:20:12
+=======
+  --> $DIR/issue-79224.rs:19:12
+>>>>>>> 53d52f3c57 (implied bounds: normalize in the proper param_env):src/test/ui/specialization/min_specialization/issue-79224.stderr
    |
 LL |     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
    |            ^^^^^ the trait `Clone` is not implemented for `B`

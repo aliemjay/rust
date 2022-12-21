@@ -1,8 +1,15 @@
 error[E0277]: the trait bound `Foo: HasComponent<()>` is not satisfied
+<<<<<<< HEAD:tests/ui/traits/issue-91594.stderr
   --> $DIR/issue-91594.rs:10:19
    |
 LL | impl HasComponent<<Foo as Component<Foo>>::Interface> for Foo {}
    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `HasComponent<()>` is not implemented for `Foo`
+=======
+  --> $DIR/issue-91594.rs:10:6
+   |
+LL | impl HasComponent<<Foo as Component<Foo>>::Interface> for Foo {}
+   |      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `HasComponent<()>` is not implemented for `Foo`
+>>>>>>> 53d52f3c57 (implied bounds: normalize in the proper param_env):src/test/ui/traits/issue-91594.stderr
    |
    = help: the trait `HasComponent<<Foo as Component<Foo>>::Interface>` is implemented for `Foo`
 note: required for `Foo` to implement `Component<Foo>`
