@@ -1,13 +1,4 @@
 error[E0308]: mismatched types
-  --> $DIR/issue-109789.rs:18:1
-   |
-LL | fn bar(_: Foo<for<'a> fn(&'a ())>::Assoc) {}
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ one type is more general than the other
-   |
-   = note: expected struct `Foo<fn(&'static ())>`
-              found struct `Foo<for<'a> fn(&'a ())>`
-
-error[E0308]: mismatched types
   --> $DIR/issue-109789.rs:18:11
    |
 LL | fn bar(_: Foo<for<'a> fn(&'a ())>::Assoc) {}
@@ -16,6 +7,6 @@ LL | fn bar(_: Foo<for<'a> fn(&'a ())>::Assoc) {}
    = note: expected struct `Foo<fn(&'static ())>`
               found struct `Foo<for<'a> fn(&'a ())>`
 
-error: aborting due to 2 previous errors
+error: aborting due to previous error
 
 For more information about this error, try `rustc --explain E0308`.
