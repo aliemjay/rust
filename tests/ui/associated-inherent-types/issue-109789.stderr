@@ -1,3 +1,11 @@
+error[E0478]: lifetime bound not satisfied
+  --> $DIR/issue-109789.rs:18:1
+   |
+LL | fn bar(_: Foo<for<'a> fn(&'a ())>::Assoc) {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: but lifetime parameter must outlive the static lifetime
+
 error[E0308]: mismatched types
   --> $DIR/issue-109789.rs:18:11
    |
@@ -7,6 +15,7 @@ LL | fn bar(_: Foo<for<'a> fn(&'a ())>::Assoc) {}
    = note: expected struct `Foo<fn(&'static ())>`
               found struct `Foo<for<'a> fn(&'a ())>`
 
-error: aborting due to previous error
+error: aborting due to 2 previous errors
 
-For more information about this error, try `rustc --explain E0308`.
+Some errors have detailed explanations: E0308, E0478.
+For more information about an error, try `rustc --explain E0308`.

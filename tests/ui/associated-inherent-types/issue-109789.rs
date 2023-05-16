@@ -17,6 +17,6 @@ impl Other for u32 {}
 
 fn bar(_: Foo<for<'a> fn(&'a ())>::Assoc) {}
 //~^ ERROR mismatched types
-//~| ERROR mismatched types
+//~| ERROR lifetime bound not satisfied
 
 fn main() {}

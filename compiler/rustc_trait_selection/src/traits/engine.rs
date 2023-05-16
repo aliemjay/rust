@@ -202,10 +202,7 @@ impl<'a, 'tcx> ObligationCtxt<'a, 'tcx> {
     }
 
     pub fn assumed_wf_types(&self, def_id: LocalDefId) -> FxIndexSet<Ty<'tcx>> {
-        let tcx = self.infcx.tcx;
-        let def_id = def_id.to_def_id();
-        let assumed_wf_types = tcx.assumed_wf_types(def_id).subst_identity();
-        tcx.liberate_late_bound_regions(def_id, assumed_wf_types).into_iter().collect()
+        self.infcx.tcx.assumed_wf_types(def_id.to_def_id()).into_iter().collect()
     }
 
     pub fn make_canonicalized_query_response<T>(
