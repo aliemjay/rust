@@ -8,6 +8,7 @@ use rustc_middle::ty::relate::TypeRelation;
 use rustc_middle::ty::{self, Ty};
 use rustc_span::symbol::sym;
 use rustc_span::{Span, Symbol};
+use std::mem;
 
 use crate::constraints::OutlivesConstraint;
 use crate::diagnostics::UniverseInfo;
@@ -196,5 +197,26 @@ impl<'tcx> TypeRelatingDelegate<'tcx> for NllTypeRelatingDelegate<'_, '_, 'tcx> 
                 region_constraints: None,
             },
         );
+    }
+
+    fn ty_preprocess_hook(&mut self, t: Ty<'tcx>) -> Ty<'tcx> {
+        match t.kind() {
+            &ty::Dynamic(pred, re, kind)
+                if false && re.is_static()
+                    || (false
+                        && re.is_var()
+                        && re.as_var()
+                            == self.type_checker.borrowck_context.universal_regions.fr_static) =>
+            {
+                let fresh_var = self.next_existential_region_var(false, None);
+                let old_category =
+                    mem::replace(&mut self.category, ConstraintCategory::DynStatic(t));
+                self.push_outlives(re, fresh_var, ty::VarianceDiagInfo::default());
+                self.push_outlives(fresh_var, re, ty::VarianceDiagInfo::default());
+                let _ = mem::replace(&mut self.category, old_category);
+                Ty::new_dynamic(self.type_checker.tcx(), pred, fresh_var, kind)
+            }
+            _ => t,
+        }
     }
 }

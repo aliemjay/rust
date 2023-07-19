@@ -111,6 +111,10 @@ pub trait TypeRelatingDelegate<'tcx> {
     /// Enables some optimizations if we do not expect inference variables
     /// in the RHS of the relation.
     fn forbid_inference_vars() -> bool;
+
+    fn ty_preprocess_hook(&mut self, ty: Ty<'tcx>) -> Ty<'tcx> {
+        ty
+    }
 }
 
 #[derive(Copy, Clone)]
@@ -475,6 +479,9 @@ where
         if a == b {
             return Ok(a);
         }
+
+        let a = self.delegate.ty_preprocess_hook(a);
+        let b = self.delegate.ty_preprocess_hook(b);
 
         match (a.kind(), b.kind()) {
             (_, &ty::Infer(ty::TyVar(vid))) => {

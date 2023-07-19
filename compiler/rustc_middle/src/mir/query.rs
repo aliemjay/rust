@@ -336,6 +336,8 @@ rustc_data_structures::static_assert_size!(ConstraintCategory<'_>, 16);
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Hash)]
 #[derive(TyEncodable, TyDecodable, HashStable, Lift, TypeVisitable, TypeFoldable)]
 pub enum ConstraintCategory<'tcx> {
+    DynStatic(Ty<'tcx>),
+
     Return(ReturnConstraint),
     Yield,
     UseAsConst,

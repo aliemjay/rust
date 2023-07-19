@@ -2158,7 +2158,7 @@ impl<'tcx> RegionInferenceContext<'tcx> {
         // ```
         //
         // and here we prefer to blame the source (the y = x statement).
-        let blame_source = match from_region_origin {
+        let blame_target = match from_region_origin {
             NllRegionVariableOrigin::FreeRegion
             | NllRegionVariableOrigin::Existential { from_forall: false } => true,
             NllRegionVariableOrigin::Placeholder(_)
@@ -2170,7 +2170,7 @@ impl<'tcx> RegionInferenceContext<'tcx> {
 
             let constraint_sup_scc = self.constraint_sccs.scc(constraint.sup);
 
-            if blame_source {
+            if blame_target {
                 match categorized_path[*i].category {
                     ConstraintCategory::OpaqueType
                     | ConstraintCategory::Boring
@@ -2178,6 +2178,7 @@ impl<'tcx> RegionInferenceContext<'tcx> {
                     | ConstraintCategory::Internal
                     | ConstraintCategory::Predicate(_) => false,
                     ConstraintCategory::TypeAnnotation
+                    | ConstraintCategory::DynStatic(_)
                     | ConstraintCategory::Return(_)
                     | ConstraintCategory::Yield => true,
                     _ => constraint_sup_scc != target_scc,
@@ -2195,9 +2196,9 @@ impl<'tcx> RegionInferenceContext<'tcx> {
         };
 
         let best_choice =
-            if blame_source { range.rev().find(find_region) } else { range.find(find_region) };
+            if blame_target { range.rev().find(find_region) } else { range.find(find_region) };
 
-        debug!(?best_choice, ?blame_source, ?extra_info);
+        debug!(?best_choice, ?blame_target, ?extra_info);
 
         if let Some(i) = best_choice {
             if let Some(next) = categorized_path.get(i + 1) {

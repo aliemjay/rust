@@ -62,6 +62,7 @@ impl<'tcx> ConstraintDescription for ConstraintCategory<'tcx> {
             ConstraintCategory::OpaqueType => "opaque type ",
             ConstraintCategory::ClosureUpvar(_) => "closure capture ",
             ConstraintCategory::Usage => "this usage ",
+            ConstraintCategory::DynStatic(_) => "using this value as a static trait object ",
             ConstraintCategory::Predicate(_)
             | ConstraintCategory::Boring
             | ConstraintCategory::BoringNoLocation
@@ -306,13 +307,34 @@ impl<'a, 'tcx> MirBorrowckCtxt<'a, 'tcx> {
                     if let Some(lower_bound_region) = lower_bound_region {
                         let generic_ty = type_test.generic_kind.to_ty(self.infcx.tcx);
                         let origin = RelateParamBound(type_test_span, generic_ty, None);
-                        self.buffer_error(self.infcx.err_ctxt().construct_generic_bound_failure(
+                        let mut diag = self.infcx.err_ctxt().construct_generic_bound_failure(
                             self.body.source.def_id().expect_local(),
                             type_test_span,
                             Some(origin),
                             type_test.generic_kind,
                             lower_bound_region,
-                        ));
+                        );
+
+                        let fr = type_test.lower_bound;
+                        let outlived_fr = self.regioncx.to_region_vid(lower_bound_region);
+                        if fr != outlived_fr {
+                            let (blame_constraint, _extra_info) =
+                                self.regioncx.best_blame_constraint(
+                                    fr,
+                                    NllRegionVariableOrigin::FreeRegion,
+                                    |r| self.regioncx.provides_universal_region(r, fr, outlived_fr),
+                                );
+                            let BlameConstraint { category, .. } = blame_constraint;
+                            let new_span = blame_constraint.outlives_constraint.span;
+                            let _ = (&new_span, &category, &mut diag);
+                            //let tcx = self.infcx.tcx;
+                            //let span_line = |span: Span| tcx.sess.source_map().lookup_line(span.lo()).ok().map(|ln| ln.line);
+                            //if span_line(new_span) != span_line(type_test_span) {
+                            //diag.span_note(new_span, format!("because of this {:?}", category));
+                            //}
+                        }
+
+                        self.buffer_error(diag);
                     } else {
                         // FIXME. We should handle this case better. It
                         // indicates that we have e.g., some region variable
