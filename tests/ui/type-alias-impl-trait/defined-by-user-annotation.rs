@@ -1,4 +1,6 @@
 // User type annotation in fn bodies is a a valid defining site for opaque types.
+// revisions: current next
+//[next] compile-flags: -Ztrait-solver=next
 // check-pass
 #![feature(type_alias_impl_trait)]
 
