@@ -70,8 +70,8 @@ use rustc_middle::dep_graph::DepContext;
 use rustc_middle::ty::print::with_forced_trimmed_paths;
 use rustc_middle::ty::relate::{self, RelateResult, TypeRelation};
 use rustc_middle::ty::{
-    self, error::TypeError, List, Region, Ty, TyCtxt, TypeFoldable, TypeSuperVisitable,
-    TypeVisitable, TypeVisitableExt,
+    self, error::TypeError, IsSuggestable, List, Region, Ty, TyCtxt, TypeFoldable,
+    TypeSuperVisitable, TypeVisitable, TypeVisitableExt,
 };
 use rustc_span::{sym, symbol::kw, BytePos, DesugaringKind, Pos, Span};
 use rustc_target::spec::abi;
@@ -2349,18 +2349,14 @@ impl<'tcx> TypeErrCtxt<'_, 'tcx> {
                 let hir::ItemKind::OpaqueTy(opaque_ty) = item.kind else {
                     return;
                 };
-                let Some(new_needle) = opaque_ty
-                    .lifetime_mapping
-                    .iter()
-                    .find(|&(a, _)| a.res == self.needle)
-                    .map(|&(_, b)| hir::LifetimeName::Param(b))
-                else {
-                    return;
-                };
-
-                let prev_needle = std::mem::replace(&mut self.needle, new_needle);
-                self.visit_item(item);
-                self.needle = prev_needle;
+                if let Some(&(_, b)) =
+                    opaque_ty.lifetime_mapping.iter().find(|&(a, _)| a.res == self.needle)
+                {
+                    let prev_needle =
+                        std::mem::replace(&mut self.needle, hir::LifetimeName::Param(b));
+                    self.visit_item(item);
+                    self.needle = prev_needle;
+                }
             }
         }
 
@@ -2427,51 +2423,12 @@ impl<'tcx> TypeErrCtxt<'_, 'tcx> {
     #[instrument(level = "trace", skip(self))]
     pub fn construct_generic_bound_failure(
         &self,
-        generic_param_scope: LocalDefId,
+        mut generic_param_scope: LocalDefId,
         span: Span,
         origin: Option<SubregionOrigin<'tcx>>,
         bound_kind: GenericKind<'tcx>,
         sub: Region<'tcx>,
     ) -> DiagnosticBuilder<'tcx, ErrorGuaranteed> {
-        // Attempt to obtain the span of the parameter so we can
-        // suggest adding an explicit lifetime bound to it.
-        let generics = self.tcx.generics_of(generic_param_scope);
-        // type_param_span is (span, has_bounds)
-        let type_param_span = match bound_kind {
-            // Account for the case where `param` corresponds to `Self`,
-            // which doesn't have the expected type argument.
-            GenericKind::Param(ref param) if !(generics.has_self && param.index == 0) => {
-                let type_param = generics.type_param(param, self.tcx);
-                let def_id = type_param.def_id.expect_local();
-                // Get the `hir::Param` to verify whether it already has any bounds.
-                // We do this to avoid suggesting code that ends up as `T: 'a'b`,
-                // instead we suggest `T: 'a + 'b` in that case.
-                let hir_id = self.tcx.hir().local_def_id_to_hir_id(def_id);
-                let ast_generics = self.tcx.hir().get_generics(hir_id.owner.def_id);
-                let bounds = ast_generics.and_then(|g| g.bounds_span_for_suggestions(def_id));
-                // `sp` only covers `T`, change it so that it covers
-                // `T:` when appropriate
-                if let Some(span) = bounds {
-                    Some((span, true))
-                } else {
-                    let sp = self.tcx.def_span(def_id);
-                    Some((sp.shrink_to_hi(), false))
-                }
-            }
-            _ => None,
-        };
-
-        let labeled_user_string = match bound_kind {
-            GenericKind::Param(ref p) => format!("the parameter type `{p}`"),
-            GenericKind::Alias(ref p) => match p.kind(self.tcx) {
-                ty::AliasKind::Projection | ty::AliasKind::Inherent => {
-                    format!("the associated type `{p}`")
-                }
-                ty::AliasKind::Weak => format!("the type alias `{p}`"),
-                ty::AliasKind::Opaque => format!("the opaque type `{p}`"),
-            },
-        };
-
         if let Some(SubregionOrigin::CompareImplItemObligation {
             span,
             impl_item_def_id,
@@ -2486,102 +2443,33 @@ impl<'tcx> TypeErrCtxt<'_, 'tcx> {
             );
         }
 
-        fn binding_suggestion<'tcx, S: fmt::Display>(
-            err: &mut Diagnostic,
-            type_param_span: Option<(Span, bool)>,
-            bound_kind: GenericKind<'tcx>,
-            sub: S,
-            add_lt_suggs: Vec<(Span, String)>,
-        ) {
-            let msg = "consider adding an explicit lifetime bound";
-            if let Some((sp, has_lifetimes)) = type_param_span {
-                let suggestion =
-                    if has_lifetimes { format!(" + {sub}") } else { format!(": {sub}") };
-                let mut suggestions = vec![(sp, suggestion)];
-                for add_lt_sugg in add_lt_suggs.into_iter() {
-                    suggestions.push(add_lt_sugg);
+        let labeled_user_string = match bound_kind {
+            GenericKind::Param(ref p) => format!("the parameter type `{p}`"),
+            GenericKind::Alias(ref p) => match p.kind(self.tcx) {
+                ty::AliasKind::Projection | ty::AliasKind::Inherent => {
+                    format!("the associated type `{p}`")
                 }
-                err.multipart_suggestion_verbose(
-                    format!("{msg}..."),
-                    suggestions,
-                    Applicability::MaybeIncorrect, // Issue #41966
-                );
-            } else {
-                let consider = format!("{msg} `{bound_kind}: {sub}`...");
-                err.help(consider);
-            }
-        }
-
-        let non_opaque_parent = |mut def_id| loop {
-            def_id = self.tcx.parent(def_id);
-            let def_kind = self.tcx.def_kind(def_id);
-            if def_kind != DefKind::OpaqueTy {
-                break (def_id, def_kind);
-            }
+                ty::AliasKind::Weak => format!("the type alias `{p}`"),
+                ty::AliasKind::Opaque => format!("the opaque type `{p}`"),
+            },
         };
 
         let mut err = match sub.kind() {
-            // In the case of GATs, we have to be careful. If we a type parameter `T` on an impl,
-            // but a lifetime `'a` on an associated type, then we might need to suggest adding
-            // `where T: 'a`. Importantly, this is on the GAT span, not on the `T` declaration.
-            ty::ReEarlyBound(ty::EarlyBoundRegion { def_id, .. })
-                if matches!(non_opaque_parent(def_id), (_, DefKind::AssocTy)) =>
-            {
-                // Does the required lifetime have a nice name we can print?
-                let lifetime_scope = non_opaque_parent(def_id).0.expect_local();
-                let generics = self.tcx.hir().get_generics(lifetime_scope).unwrap();
-                let mut err = struct_span_err!(
-                    self.tcx.sess,
-                    span,
-                    E0309,
-                    "{} may not live long enough",
-                    labeled_user_string
-                );
-                let pred = format!("{bound_kind}: {sub}");
-                let suggestion = format!("{} {}", generics.add_where_or_trailing_comma(), pred,);
-                err.span_suggestion(
-                    generics.tail_span_for_predicate_suggestion(),
-                    "consider adding a where clause",
-                    suggestion,
-                    Applicability::MaybeIncorrect,
-                );
-                err
-            }
-            ty::ReEarlyBound(ty::EarlyBoundRegion { name, .. })
-            | ty::ReFree(ty::FreeRegion { bound_region: ty::BrNamed(_, name), .. })
-                if !matches!(name, kw::UnderscoreLifetime | kw::Empty) =>
-            {
-                // Does the required lifetime have a nice name we can print?
-                let mut err = struct_span_err!(
-                    self.tcx.sess,
-                    span,
-                    E0309,
-                    "{} may not live long enough",
-                    labeled_user_string
-                );
-                // Explicitly use the name instead of `sub`'s `Display` impl. The `Display` impl
-                // for the bound is not suitable for suggestions when `-Zverbose` is set because it
-                // uses `Debug` output, so we handle it specially here so that suggestions are
-                // always correct.
-                binding_suggestion(&mut err, type_param_span, bound_kind, name, vec![]);
-                err
-            }
-
-            ty::ReStatic => {
-                // Does the required lifetime have a nice name we can print?
-                let mut err = struct_span_err!(
-                    self.tcx.sess,
-                    span,
-                    E0310,
-                    "{} may not live long enough",
-                    labeled_user_string
-                );
-                binding_suggestion(&mut err, type_param_span, bound_kind, "'static", vec![]);
-                err
-            }
-
+            ty::ReEarlyBound(_) | ty::ReFree(_) if sub.has_name() => struct_span_err!(
+                self.tcx.sess,
+                span,
+                E0309,
+                "{} may not live long enough",
+                labeled_user_string
+            ),
+            ty::ReStatic => struct_span_err!(
+                self.tcx.sess,
+                span,
+                E0310,
+                "{} may not live long enough",
+                labeled_user_string
+            ),
             _ => {
-                // If not, be less specific.
                 let mut err = struct_span_err!(
                     self.tcx.sess,
                     span,
@@ -2597,12 +2485,86 @@ impl<'tcx> TypeErrCtxt<'_, 'tcx> {
                     "...",
                     None,
                 );
-                let (new_lt, add_lt_suggs) =
-                    self.name_region(sub).unwrap_or_else(|| (format!("{sub}"), vec![]));
-                binding_suggestion(&mut err, type_param_span, bound_kind, new_lt, add_lt_suggs);
                 err
             }
         };
+
+        'sugg: {
+            let msg = "consider adding an explicit lifetime bound";
+
+            if (bound_kind, sub).has_infer_regions()
+                || (bound_kind, sub).has_placeholders()
+                || !bound_kind.is_suggestable(self.tcx, false)
+            {
+                err.help(format!("{msg} `{bound_kind}: {sub}`..."));
+                break 'sugg;
+            }
+
+            while self.tcx.def_kind(generic_param_scope) == DefKind::OpaqueTy {
+                generic_param_scope = self.tcx.local_parent(generic_param_scope);
+            }
+
+            // type_param_span is (span, has_bounds)
+            let generics = self.tcx.generics_of(generic_param_scope);
+            let (type_scope, type_param_span) = match bound_kind {
+                // Account for the case where `param` corresponds to `Self`,
+                // which doesn't have the expected type argument.
+                GenericKind::Param(ref param) if !(generics.has_self && param.index == 0) => {
+                    let type_param = generics.type_param(param, self.tcx);
+                    let def_id = type_param.def_id.expect_local();
+                    // Get the `hir::Param` to verify whether it already has any bounds.
+                    // We do this to avoid suggesting code that ends up as `T: 'a'b`,
+                    // instead we suggest `T: 'a + 'b` in that case.
+                    let hir_id = self.tcx.hir().local_def_id_to_hir_id(def_id);
+                    let hir_generics = self.tcx.hir().get_generics(hir_id.owner.def_id).unwrap();
+                    let span = match hir_generics.bounds_span_for_suggestions(def_id) {
+                        Some(span) => (span, true),
+                        None => (self.tcx.def_span(def_id).shrink_to_hi(), false),
+                    };
+                    (hir_id.owner.def_id, Some(span))
+                }
+                _ => (generic_param_scope, None),
+            };
+            let lifetime_scope = match sub.kind() {
+                ty::ReStatic => hir::def_id::CRATE_DEF_ID,
+                _ => match self.tcx.is_suitable_region(sub) {
+                    Some(info) => info.def_id,
+                    None => generic_param_scope,
+                },
+            };
+            let suggestion_scope =
+                match self.tcx.is_descendant_of(type_scope.into(), lifetime_scope.into()) {
+                    true => type_scope,
+                    false => lifetime_scope,
+                };
+
+            let mut suggs = vec![];
+            let lt_name = match self.name_region(sub) {
+                Some((lt_name, add_lt_suggs)) => {
+                    suggs.extend(add_lt_suggs);
+                    lt_name
+                }
+                None => sub.get_name().map_or_else(|| format!("{}", sub), |name| name.to_string()),
+            };
+
+            if type_param_span.is_some() && suggestion_scope == type_scope {
+                let (sp, has_lifetimes) = type_param_span.unwrap();
+                let suggestion =
+                    if has_lifetimes { format!(" + {lt_name}") } else { format!(": {lt_name}") };
+                suggs.push((sp, suggestion))
+            } else {
+                let generics = self.tcx.hir().get_generics(suggestion_scope).unwrap();
+                let pred = format!("{bound_kind}: {lt_name}");
+                let suggestion = format!("{} {}", generics.add_where_or_trailing_comma(), pred,);
+                suggs.push((generics.tail_span_for_predicate_suggestion(), suggestion))
+            }
+
+            err.multipart_suggestion_verbose(
+                format!("{msg}..."),
+                suggs,
+                Applicability::MaybeIncorrect, // Issue #41966
+            );
+        }
 
         if let Some(origin) = origin {
             self.note_region_origin(&mut err, &origin);

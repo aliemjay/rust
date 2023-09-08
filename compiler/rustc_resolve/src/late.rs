@@ -728,7 +728,7 @@ impl<'a: 'ast, 'ast, 'tcx> Visitor<'ast> for LateResolutionVisitor<'a, '_, 'ast,
                 // Elided lifetime in reference: we resolve as if there was some lifetime `'_` with
                 // NodeId `ty.id`.
                 // This span will be used in case of elision failure.
-                let span = self.r.tcx.sess.source_map().start_point(ty.span).shrink_to_hi();
+                let span = self.r.tcx.sess.source_map().start_point(ty.span);
                 self.resolve_elided_lifetime(ty.id, span);
                 visit::walk_ty(self, ty);
             }
