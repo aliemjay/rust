@@ -2318,11 +2318,7 @@ impl<'tcx> TypeErrCtxt<'_, 'tcx> {
             .emit();
     }
 
-    pub fn name_region(
-        &self,
-        generic_param_scope: LocalDefId,
-        lifetime: Region<'tcx>,
-    ) -> Option<(String, Vec<(Span, String)>)> {
+    pub fn name_region(&self, lifetime: Region<'tcx>) -> Option<(String, Vec<(Span, String)>)> {
         struct LifetimeVisitor<'tcx, 'a> {
             tcx: TyCtxt<'tcx>,
             needle: hir::LifetimeName,
@@ -2368,34 +2364,26 @@ impl<'tcx> TypeErrCtxt<'_, 'tcx> {
             }
         }
 
-        let mut lifetime = lifetime;
-        let (lifetime_def_id, lifetime_scope) = loop {
-            let (def_id, scope) = match lifetime.kind() {
-                ty::ReEarlyBound(ty::EarlyBoundRegion { def_id, .. })
-                | ty::ReFree(ty::FreeRegion { bound_region: ty::BrNamed(def_id, _), .. })
-                    if !lifetime.has_name() =>
-                {
-                    (def_id.expect_local(), self.tcx.local_parent(def_id))
-                }
-                _ => return None,
-            };
-            if self.tcx.def_kind(scope) != DefKind::OpaqueTy {
-                break (def_id, scope);
+        let (lifetime_def_id, lifetime_scope) = match self.tcx.is_suitable_region(lifetime)? {
+            ty::FreeRegionInfo { def_id, boundregion: ty::BrNamed(lt_def_id, _), .. }
+                if !lifetime.has_name() =>
+            {
+                (lt_def_id.expect_local(), def_id)
             }
-            lifetime = self.tcx.map_rpit_lifetime_to_fn_lifetime(def_id);
+            _ => return None,
         };
 
         let mut add_lt_suggs = vec![];
 
         let new_lt = {
-            let generics = self.tcx.generics_of(generic_param_scope);
+            let generics = self.tcx.generics_of(lifetime_scope);
             let mut used_names =
                 iter::successors(Some(generics), |g| g.parent.map(|p| self.tcx.generics_of(p)))
                     .flat_map(|g| &g.params)
                     .filter(|p| matches!(p.kind, ty::GenericParamDefKind::Lifetime))
                     .map(|p| p.name)
                     .collect::<Vec<_>>();
-            if let Some(hir_id) = self.tcx.opt_local_def_id_to_hir_id(generic_param_scope) {
+            if let Some(hir_id) = self.tcx.opt_local_def_id_to_hir_id(lifetime_scope) {
                 // consider late-bound lifetimes ...
                 used_names.extend(self.tcx.late_bound_vars(hir_id).into_iter().filter_map(|p| {
                     match p {
@@ -2450,9 +2438,9 @@ impl<'tcx> TypeErrCtxt<'_, 'tcx> {
         let generics = self.tcx.generics_of(generic_param_scope);
         // type_param_span is (span, has_bounds)
         let type_param_span = match bound_kind {
+            // Account for the case where `param` corresponds to `Self`,
+            // which doesn't have the expected type argument.
             GenericKind::Param(ref param) if !(generics.has_self && param.index == 0) => {
-                // Account for the case where `param` corresponds to `Self`,
-                // which doesn't have the expected type argument.
                 let type_param = generics.type_param(param, self.tcx);
                 let def_id = type_param.def_id.expect_local();
                 // Get the `hir::Param` to verify whether it already has any bounds.
@@ -2609,9 +2597,8 @@ impl<'tcx> TypeErrCtxt<'_, 'tcx> {
                     "...",
                     None,
                 );
-                let (new_lt, add_lt_suggs) = self
-                    .name_region(generic_param_scope, sub)
-                    .unwrap_or_else(|| (format!("{sub}"), vec![]));
+                let (new_lt, add_lt_suggs) =
+                    self.name_region(sub).unwrap_or_else(|| (format!("{sub}"), vec![]));
                 binding_suggestion(&mut err, type_param_span, bound_kind, new_lt, add_lt_suggs);
                 err
             }
