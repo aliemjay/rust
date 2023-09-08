@@ -11,8 +11,8 @@ LL |     v.0.chars().chain(v.1.chars())
    |
 help: to declare that `impl Iterator<Item = char>` captures `'_`, you can introduce a named lifetime parameter `'a`
    |
-LL | fn chars0<'a>(v :(&'a  str, &'a str)) -> impl Iterator<Item = char> + 'a  {
-   |          ++++      ++        ++                                     ++++
+LL | fn chars0<'a>(v :(&'a str, &'astr)) -> impl Iterator<Item = char> + 'a  {
+   |          ++++      ++       ++                                    ++++
 
 error[E0700]: hidden type for `impl Iterator<Item = char>` captures lifetime that does not appear in bounds
   --> $DIR/issue-105227.rs:13:5
@@ -27,8 +27,8 @@ LL |     v0.chars().chain(v1.chars())
    |
 help: to declare that `impl Iterator<Item = char>` captures `'_`, you can introduce a named lifetime parameter `'a`
    |
-LL | fn chars1<'a>(v0 : &'a  str, v1 : &'a str) -> impl Iterator<Item = char> + 'a  {
-   |          ++++       ++             ++                                    ++++
+LL | fn chars1<'a>(v0 : &'a str, v1 : &'astr) -> impl Iterator<Item = char> + 'a  {
+   |          ++++       ++            ++                                   ++++
 
 error[E0700]: hidden type for `impl Iterator<Item = char>` captures lifetime that does not appear in bounds
   --> $DIR/issue-105227.rs:21:5
@@ -44,7 +44,7 @@ LL |     (v0.chars().chain(v1.chars()), v2)
    |
 help: to declare that `impl Iterator<Item = char>` captures `'_`, you can use the named lifetime parameter `'b`
    |
-LL ~ fn chars2<'b>(v0 : &'b str, v1 : &'b str, v2 : &'b str) ->
+LL ~ fn chars2<'b>(v0 : &'bstr, v1 : &'b str, v2 : &'b str) ->
 LL |
 LL ~     (impl Iterator<Item = char> + 'b , &'b str)
    |

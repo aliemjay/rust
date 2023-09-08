@@ -69,7 +69,7 @@ pub struct Lifetime {
 
 impl fmt::Debug for Lifetime {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "lifetime({}: {})", self.id, self)
+        write!(f, "lifetime({}: {:?})", self.id, self.ident)
     }
 }
 

@@ -15,10 +15,10 @@ LL | fn wrap(self: Wrap<{ fn bar(&self) {} }>) -> &() {
    = note: associated functions are those in `impl` or `trait` definitions
 
 error[E0106]: missing lifetime specifier
-  --> $DIR/nested-item.rs:5:46
+  --> $DIR/nested-item.rs:5:47
    |
 LL | fn wrap(self: Wrap<{ fn bar(&self) {} }>) -> &() {
-   |                                              ^ expected named lifetime parameter
+   |                                               ^ expected named lifetime parameter
    |
    = help: this function's return type contains a borrowed value, but there is no value for it to be borrowed from
 help: consider using the `'static` lifetime

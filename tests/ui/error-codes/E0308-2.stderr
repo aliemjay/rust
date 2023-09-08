@@ -7,10 +7,10 @@ LL | impl Eq for &dyn DynEq {}
    = note: expected trait `<&dyn DynEq as PartialEq>`
               found trait `<&(dyn DynEq + 'static) as PartialEq>`
 note: the anonymous lifetime as defined here...
-  --> $DIR/E0308-2.rs:9:13
+  --> $DIR/E0308-2.rs:9:14
    |
 LL | impl Eq for &dyn DynEq {}
-   |             ^
+   |              ^
    = note: ...does not necessarily outlive the static lifetime
 
 error: aborting due to previous error

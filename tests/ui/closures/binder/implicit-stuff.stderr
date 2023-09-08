@@ -1,20 +1,20 @@
 error[E0637]: `&` without an explicit lifetime name cannot be used here
-  --> $DIR/implicit-stuff.rs:20:23
+  --> $DIR/implicit-stuff.rs:20:24
    |
 LL |     let _ = for<> |_: &()| -> () {};
-   |                       ^ explicit lifetime name needed here
+   |                        ^ explicit lifetime name needed here
 
 error[E0637]: `&` without an explicit lifetime name cannot be used here
-  --> $DIR/implicit-stuff.rs:21:23
+  --> $DIR/implicit-stuff.rs:21:24
    |
 LL |     let _ = for<> |x: &()| -> &() { x };
-   |                       ^ explicit lifetime name needed here
+   |                        ^ explicit lifetime name needed here
 
 error[E0637]: `&` without an explicit lifetime name cannot be used here
-  --> $DIR/implicit-stuff.rs:21:31
+  --> $DIR/implicit-stuff.rs:21:32
    |
 LL |     let _ = for<> |x: &()| -> &() { x };
-   |                               ^ explicit lifetime name needed here
+   |                                ^ explicit lifetime name needed here
 
 error[E0637]: `'_` cannot be used here
   --> $DIR/implicit-stuff.rs:23:24
@@ -29,16 +29,16 @@ LL |     let _ = for<> |x: &'_ ()| -> &'_ () { x };
    |                                   ^^ `'_` is a reserved lifetime name
 
 error[E0637]: `&` without an explicit lifetime name cannot be used here
-  --> $DIR/implicit-stuff.rs:25:25
+  --> $DIR/implicit-stuff.rs:25:26
    |
 LL |     let _ = for<'a> |x: &()| -> &'a () { x };
-   |                         ^ explicit lifetime name needed here
+   |                          ^ explicit lifetime name needed here
 
 error[E0637]: `&` without an explicit lifetime name cannot be used here
-  --> $DIR/implicit-stuff.rs:26:36
+  --> $DIR/implicit-stuff.rs:26:37
    |
 LL |     let _ = for<'a> |x: &'a ()| -> &() { x };
-   |                                    ^ explicit lifetime name needed here
+   |                                     ^ explicit lifetime name needed here
 
 error: implicit types in closure signatures are forbidden when `for<...>` is present
   --> $DIR/implicit-stuff.rs:5:22

@@ -9,8 +9,8 @@ LL | pub fn foo(x: &mut Vec<&u8>, y: &u8) { x.push(y); }
    |
 help: consider introducing a named lifetime parameter
    |
-LL | pub fn foo<'a>(x: &mut Vec<&'a u8>, y: &'a u8) { x.push(y); }
-   |           ++++              ++          ++
+LL | pub fn foo<'a>(x: &mut Vec<'au8>, y: 'au8) { x.push(y); }
+   |           ++++             ~~        ~~
 
 error: lifetime may not live long enough
   --> $DIR/issue-90170-elision-mismatch.rs:5:44
@@ -23,8 +23,8 @@ LL | pub fn foo2(x: &mut Vec<&'_ u8>, y: &u8) { x.push(y); }
    |
 help: consider introducing a named lifetime parameter
    |
-LL | pub fn foo2<'a>(x: &mut Vec<&'a u8>, y: &'a u8) { x.push(y); }
-   |            ++++              ~~          ++
+LL | pub fn foo2<'a>(x: &mut Vec<&'a u8>, y: 'au8) { x.push(y); }
+   |            ++++              ~~         ~~
 
 error: lifetime may not live long enough
   --> $DIR/issue-90170-elision-mismatch.rs:7:63
@@ -37,8 +37,8 @@ LL | pub fn foo3<'a>(_other: &'a [u8], x: &mut Vec<&u8>, y: &u8) { x.push(y); }
    |
 help: consider introducing a named lifetime parameter
    |
-LL | pub fn foo3<'a>(_other: &'a [u8], x: &mut Vec<&'a u8>, y: &'a u8) { x.push(y); }
-   |                                                ++          ++
+LL | pub fn foo3<'a>(_other: &'a [u8], x: &mut Vec<'au8>, y: 'au8) { x.push(y); }
+   |                                               ~~        ~~
 
 error: aborting due to 3 previous errors
 

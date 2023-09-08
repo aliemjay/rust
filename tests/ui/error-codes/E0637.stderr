@@ -17,10 +17,10 @@ LL | fn underscore_lifetime<'a, '_>(str1: &'a str, str2: &'a str) -> &'a str {
    |                        +++            ~~             ~~          ~~
 
 error[E0637]: `&` without an explicit lifetime name cannot be used here
-  --> $DIR/E0637.rs:13:13
+  --> $DIR/E0637.rs:13:14
    |
 LL |     T: Into<&u32>,
-   |             ^ explicit lifetime name needed here
+   |              ^ explicit lifetime name needed here
    |
 help: consider introducing a higher-ranked lifetime here
    |

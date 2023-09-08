@@ -1,10 +1,11 @@
 error[E0106]: missing lifetime specifiers
-  --> $DIR/missing-lt-for-hrtb.rs:2:32
+  --> $DIR/missing-lt-for-hrtb.rs:2:33
    |
 LL | struct S<'a>(&'a dyn Fn(&X) -> &X);
-   |                         --     ^^ expected named lifetime parameter
-   |                                |
-   |                                expected named lifetime parameter
+   |                         --      ^
+   |                                 |
+   |                                 expected named lifetime parameter
+   |                                 expected named lifetime parameter
    |
    = help: this function's return type contains a borrowed value, but the signature does not say which one of argument 1's 2 lifetimes it is borrowed from
 help: consider using the `'a` lifetime
@@ -13,12 +14,13 @@ LL | struct S<'a>(&'a dyn Fn(&X) -> &'a X<'a>);
    |                                 ++  ++++
 
 error[E0106]: missing lifetime specifiers
-  --> $DIR/missing-lt-for-hrtb.rs:4:40
+  --> $DIR/missing-lt-for-hrtb.rs:4:41
    |
 LL | struct V<'a>(&'a dyn for<'b> Fn(&X) -> &X);
-   |                                 --     ^^ expected named lifetime parameter
-   |                                        |
-   |                                        expected named lifetime parameter
+   |                                 --      ^
+   |                                         |
+   |                                         expected named lifetime parameter
+   |                                         expected named lifetime parameter
    |
    = help: this function's return type contains a borrowed value, but the signature does not say which one of argument 1's 2 lifetimes it is borrowed from
 note: these named lifetimes are available to use

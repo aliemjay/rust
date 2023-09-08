@@ -10,8 +10,8 @@ LL |         x.push(y);
    |
 help: consider introducing a named lifetime parameter and update trait if needed
    |
-LL |     fn foo<'a>(x: &mut Vec<&'a u8>, y: &'a u8) {
-   |           ++++              ++          ++
+LL |     fn foo<'a>(x: &mut Vec<'au8>, y: 'au8) {
+   |           ++++             ~~        ~~
 
 error: aborting due to previous error
 

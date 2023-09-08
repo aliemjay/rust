@@ -165,8 +165,10 @@ impl Lifetime {
             }
         } else if self.res == LifetimeName::ImplicitObjectLifetimeDefault {
             (LifetimeSuggestionPosition::ObjectDefault, self.ident.span)
-        } else if self.ident.span.is_empty() {
-            (LifetimeSuggestionPosition::Ampersand, self.ident.span)
+        } else if self.ident.name == kw::UnderscoreLifetime
+            && self.ident.span.hi() - self.ident.span.lo() == BytePos(1)
+        {
+            (LifetimeSuggestionPosition::Ampersand, self.ident.span.shrink_to_hi())
         } else {
             (LifetimeSuggestionPosition::Normal, self.ident.span)
         }

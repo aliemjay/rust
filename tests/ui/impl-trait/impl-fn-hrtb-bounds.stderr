@@ -17,10 +17,10 @@ LL | fn a() -> impl Fn(&u8) -> (impl Debug + '_) {
    |                                         ^^
    |
 note: lifetime declared here
-  --> $DIR/impl-fn-hrtb-bounds.rs:4:19
+  --> $DIR/impl-fn-hrtb-bounds.rs:4:20
    |
 LL | fn a() -> impl Fn(&u8) -> (impl Debug + '_) {
-   |                   ^
+   |                    ^
 
 error: higher kinded lifetime bounds on nested opaque types are not supported yet
   --> $DIR/impl-fn-hrtb-bounds.rs:9:52

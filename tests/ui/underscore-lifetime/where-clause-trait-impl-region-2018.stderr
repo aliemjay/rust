@@ -1,8 +1,8 @@
 error[E0637]: `&` without an explicit lifetime name cannot be used here
-  --> $DIR/where-clause-trait-impl-region-2018.rs:11:17
+  --> $DIR/where-clause-trait-impl-region-2018.rs:11:18
    |
 LL |     T: WithType<&u32>
-   |                 ^ explicit lifetime name needed here
+   |                  ^ explicit lifetime name needed here
    |
 help: consider introducing a higher-ranked lifetime here
    |

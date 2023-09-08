@@ -1,8 +1,8 @@
 error[E0106]: missing lifetime specifier
-  --> $DIR/bound-lifetime-in-binding-only.rs:52:23
+  --> $DIR/bound-lifetime-in-binding-only.rs:52:24
    |
 LL | fn elision<T: Fn() -> &i32>() {
-   |                       ^ expected named lifetime parameter
+   |                        ^ expected named lifetime parameter
    |
    = help: this function's return type contains a borrowed value, but there is no value for it to be borrowed from
 help: consider using the `'static` lifetime

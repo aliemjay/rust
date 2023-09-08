@@ -10,8 +10,8 @@ LL |     z.push((x,y));
    |
 help: consider introducing a named lifetime parameter
    |
-LL | fn foo<'a>(z: &mut Vec<(&'a u8,&u8)>, (x, y): (&'a u8, &u8)) {
-   |       ++++               ++                     ++
+LL | fn foo<'a>(z: &mut Vec<('au8,&u8)>, (x, y): ('au8, &u8)) {
+   |       ++++              ~~                   ~~
 
 error: lifetime may not live long enough
   --> $DIR/ex3-both-anon-regions-3.rs:2:5
@@ -25,8 +25,8 @@ LL |     z.push((x,y));
    |
 help: consider introducing a named lifetime parameter
    |
-LL | fn foo<'a>(z: &mut Vec<(&u8,&'a u8)>, (x, y): (&u8, &'a u8)) {
-   |       ++++                   ++                      ++
+LL | fn foo<'a>(z: &mut Vec<(&u8,'au8)>, (x, y): (&u8, 'au8)) {
+   |       ++++                  ~~                    ~~
 
 error: aborting due to 2 previous errors
 

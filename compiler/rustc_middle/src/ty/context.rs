@@ -2096,7 +2096,11 @@ impl<'tcx> TyCtxt<'tcx> {
     }
 
     pub fn local_def_id_to_hir_id(self, local_def_id: LocalDefId) -> HirId {
-        self.opt_local_def_id_to_hir_id(local_def_id).unwrap()
+        debug!("local_def_id_toj {local_def_id:?}");
+        debug!("locaaa {:?}", self.hir_crate(()).owners[local_def_id]);
+        let hh = self.opt_local_def_id_to_hir_id(local_def_id);
+        debug!("local_def_idi {hh:?}");
+        hh.unwrap()
     }
 
     pub fn next_trait_solver_globally(self) -> bool {

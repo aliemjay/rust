@@ -1,8 +1,8 @@
 error[E0106]: missing lifetime specifier
-  --> $DIR/regions-in-enums-anon.rs:4:9
+  --> $DIR/regions-in-enums-anon.rs:4:10
    |
 LL |     Bar(&isize)
-   |         ^ expected named lifetime parameter
+   |          ^ expected named lifetime parameter
    |
 help: consider introducing a named lifetime parameter
    |

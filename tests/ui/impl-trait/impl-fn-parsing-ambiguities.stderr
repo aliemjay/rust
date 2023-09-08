@@ -17,10 +17,10 @@ LL | fn a() -> impl Fn(&u8) -> impl Debug + '_ {
    |                                        ^^
    |
 note: lifetime declared here
-  --> $DIR/impl-fn-parsing-ambiguities.rs:4:19
+  --> $DIR/impl-fn-parsing-ambiguities.rs:4:20
    |
 LL | fn a() -> impl Fn(&u8) -> impl Debug + '_ {
-   |                   ^
+   |                    ^
 
 error: aborting due to 3 previous errors
 

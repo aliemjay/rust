@@ -1809,8 +1809,7 @@ impl Hash for Ident {
 
 impl fmt::Debug for Ident {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(self, f)?;
-        fmt::Debug::fmt(&self.span.ctxt(), f)
+        write!(f, "{} at {:?}", self, self.span)
     }
 }
 

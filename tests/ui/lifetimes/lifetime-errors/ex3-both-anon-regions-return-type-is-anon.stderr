@@ -10,8 +10,8 @@ LL |     x
    |
 help: consider introducing a named lifetime parameter and update trait if needed
    |
-LL |   fn foo<'a>(&'a self, x: &'a i32) -> &i32 {
-   |               ++           ++
+LL |   fn foo<'a>('aself, x: 'ai32) -> &i32 {
+   |              ~~         ~~
 
 error: aborting due to previous error
 

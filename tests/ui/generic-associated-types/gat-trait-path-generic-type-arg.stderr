@@ -8,10 +8,10 @@ LL |     type F<T1> = &[u8];
    |            ^^ already used
 
 error[E0637]: `&` without an explicit lifetime name cannot be used here
-  --> $DIR/gat-trait-path-generic-type-arg.rs:9:18
+  --> $DIR/gat-trait-path-generic-type-arg.rs:9:19
    |
 LL |     type F<T1> = &[u8];
-   |                  ^ explicit lifetime name needed here
+   |                   ^ explicit lifetime name needed here
 
 error[E0207]: the type parameter `T1` is not constrained by the impl trait, self type, or predicates
   --> $DIR/gat-trait-path-generic-type-arg.rs:7:10

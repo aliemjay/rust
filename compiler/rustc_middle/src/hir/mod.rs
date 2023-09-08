@@ -144,6 +144,7 @@ pub fn provide(providers: &mut Providers) {
     };
     providers.opt_local_def_id_to_hir_id = |tcx, id| {
         let owner = tcx.hir_crate(()).owners[id].map(|_| ());
+        debug!("local_def_id_to {owner:?}");
         Some(match owner {
             MaybeOwner::Owner(_) => HirId::make_owner(id),
             MaybeOwner::Phantom => bug!("No HirId for {:?}", id),

@@ -1,8 +1,8 @@
 error[E0106]: missing lifetime specifier
-  --> $DIR/lifetime-elision-return-type-requires-explicit-lifetime.rs:2:11
+  --> $DIR/lifetime-elision-return-type-requires-explicit-lifetime.rs:2:12
    |
 LL | fn f() -> &isize {
-   |           ^ expected named lifetime parameter
+   |            ^ expected named lifetime parameter
    |
    = help: this function's return type contains a borrowed value, but there is no value for it to be borrowed from
 help: consider using the `'static` lifetime
@@ -11,10 +11,10 @@ LL | fn f() -> &'static isize {
    |            +++++++
 
 error[E0106]: missing lifetime specifier
-  --> $DIR/lifetime-elision-return-type-requires-explicit-lifetime.rs:7:33
+  --> $DIR/lifetime-elision-return-type-requires-explicit-lifetime.rs:7:34
    |
 LL | fn g(_x: &isize, _y: &isize) -> &isize {
-   |          ------      ------     ^ expected named lifetime parameter
+   |          ------      ------      ^ expected named lifetime parameter
    |
    = help: this function's return type contains a borrowed value, but the signature does not say whether it is borrowed from `_x` or `_y`
 help: consider introducing a named lifetime parameter
@@ -23,10 +23,10 @@ LL | fn g<'a>(_x: &'a isize, _y: &'a isize) -> &'a isize {
    |     ++++      ++             ++            ++
 
 error[E0106]: missing lifetime specifier
-  --> $DIR/lifetime-elision-return-type-requires-explicit-lifetime.rs:17:19
+  --> $DIR/lifetime-elision-return-type-requires-explicit-lifetime.rs:17:20
    |
 LL | fn h(_x: &Foo) -> &isize {
-   |          ----     ^ expected named lifetime parameter
+   |          ----      ^ expected named lifetime parameter
    |
    = help: this function's return type contains a borrowed value, but the signature does not say which one of `_x`'s 2 lifetimes it is borrowed from
 help: consider introducing a named lifetime parameter
@@ -35,10 +35,10 @@ LL | fn h<'a>(_x: &'a Foo<'a>) -> &'a isize {
    |     ++++      ++    ++++      ++
 
 error[E0106]: missing lifetime specifier
-  --> $DIR/lifetime-elision-return-type-requires-explicit-lifetime.rs:21:20
+  --> $DIR/lifetime-elision-return-type-requires-explicit-lifetime.rs:21:21
    |
 LL | fn i(_x: isize) -> &isize {
-   |                    ^ expected named lifetime parameter
+   |                     ^ expected named lifetime parameter
    |
    = help: this function's return type contains a borrowed value, but there is no value for it to be borrowed from
 help: consider using the `'static` lifetime
@@ -47,10 +47,10 @@ LL | fn i(_x: isize) -> &'static isize {
    |                     +++++++
 
 error[E0106]: missing lifetime specifier
-  --> $DIR/lifetime-elision-return-type-requires-explicit-lifetime.rs:34:24
+  --> $DIR/lifetime-elision-return-type-requires-explicit-lifetime.rs:34:25
    |
 LL | fn j(_x: StaticStr) -> &isize {
-   |                        ^ expected named lifetime parameter
+   |                         ^ expected named lifetime parameter
    |
    = help: this function's return type contains a borrowed value, but there is no value for it to be borrowed from
 help: consider using the `'static` lifetime
@@ -59,10 +59,10 @@ LL | fn j(_x: StaticStr) -> &'static isize {
    |                         +++++++
 
 error[E0106]: missing lifetime specifier
-  --> $DIR/lifetime-elision-return-type-requires-explicit-lifetime.rs:40:49
+  --> $DIR/lifetime-elision-return-type-requires-explicit-lifetime.rs:40:50
    |
 LL | fn k<'a, T: WithLifetime<'a>>(_x: T::Output) -> &isize {
-   |                                                 ^ expected named lifetime parameter
+   |                                                  ^ expected named lifetime parameter
    |
    = help: this function's return type contains a borrowed value, but there is no value for it to be borrowed from
 help: consider using the `'a` lifetime
@@ -71,10 +71,10 @@ LL | fn k<'a, T: WithLifetime<'a>>(_x: T::Output) -> &'a isize {
    |                                                  ++
 
 error[E0106]: missing lifetime specifier
-  --> $DIR/lifetime-elision-return-type-requires-explicit-lifetime.rs:45:37
+  --> $DIR/lifetime-elision-return-type-requires-explicit-lifetime.rs:45:38
    |
 LL | fn l<'a>(_: &'a str, _: &'a str) -> &str { "" }
-   |             -------     -------     ^ expected named lifetime parameter
+   |             -------     -------      ^ expected named lifetime parameter
    |
    = help: this function's return type contains a borrowed value with an elided lifetime, but the lifetime cannot be derived from the arguments
 help: consider using the `'a` lifetime

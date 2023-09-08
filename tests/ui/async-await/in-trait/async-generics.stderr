@@ -5,15 +5,20 @@ LL |     async fn foo(&self) -> &(T, U);
    |                            ^^^^^^^
    |
 note: the parameter type `U` must be valid for the anonymous lifetime as defined here...
-  --> $DIR/async-generics.rs:9:18
+  --> $DIR/async-generics.rs:9:19
    |
 LL |     async fn foo(&self) -> &(T, U);
-   |                  ^
+   |                   ^
 note: ...so that the reference type `&(T, U)` does not outlive the data it points at
   --> $DIR/async-generics.rs:9:28
    |
 LL |     async fn foo(&self) -> &(T, U);
    |                            ^^^^^^^
+help: consider adding an explicit lifetime bound...
+   |
+LL ~ trait MyTrait<T, U: 'a> {
+LL ~     async fn foo<'a>(&'a'a self) -> &'a (T, U);
+   |
 
 error[E0311]: the parameter type `T` may not live long enough
   --> $DIR/async-generics.rs:9:28
@@ -22,15 +27,20 @@ LL |     async fn foo(&self) -> &(T, U);
    |                            ^^^^^^^
    |
 note: the parameter type `T` must be valid for the anonymous lifetime as defined here...
-  --> $DIR/async-generics.rs:9:18
+  --> $DIR/async-generics.rs:9:19
    |
 LL |     async fn foo(&self) -> &(T, U);
-   |                  ^
+   |                   ^
 note: ...so that the reference type `&(T, U)` does not outlive the data it points at
   --> $DIR/async-generics.rs:9:28
    |
 LL |     async fn foo(&self) -> &(T, U);
    |                            ^^^^^^^
+help: consider adding an explicit lifetime bound...
+   |
+LL ~ trait MyTrait<T: 'a, U> {
+LL ~     async fn foo<'a>(&'a'a self) -> &'a (T, U);
+   |
 
 error: aborting due to 2 previous errors
 

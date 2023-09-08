@@ -21,8 +21,8 @@ LL |   y.push(z);
    |
 help: consider introducing a named lifetime parameter
    |
-LL | fn foo<'a>(x:Box<dyn Fn(&u8, &u8)> , y: Vec<&'a u8>, z: &'a u8) {
-   |       ++++                                   ++          ++
+LL | fn foo<'a>(x:Box<dyn Fn(&u8, &u8)> , y: Vec<'au8>, z: 'au8) {
+   |       ++++                                  ~~        ~~
 
 error: aborting due to 2 previous errors
 

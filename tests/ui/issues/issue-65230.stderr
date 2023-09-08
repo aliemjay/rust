@@ -7,10 +7,10 @@ LL | impl T1 for &dyn T2 {}
    = note: expected trait `<&dyn T2 as T0>`
               found trait `<&(dyn T2 + 'static) as T0>`
 note: the anonymous lifetime as defined here...
-  --> $DIR/issue-65230.rs:8:13
+  --> $DIR/issue-65230.rs:8:14
    |
 LL | impl T1 for &dyn T2 {}
-   |             ^
+   |              ^
    = note: ...does not necessarily outlive the static lifetime
 
 error: aborting due to previous error

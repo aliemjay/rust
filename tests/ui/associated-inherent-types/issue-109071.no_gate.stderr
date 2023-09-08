@@ -1,8 +1,8 @@
 error[E0637]: `&` without an explicit lifetime name cannot be used here
-  --> $DIR/issue-109071.rs:8:17
+  --> $DIR/issue-109071.rs:8:18
    |
 LL |     type Item = &[T];
-   |                 ^ explicit lifetime name needed here
+   |                  ^ explicit lifetime name needed here
 
 error[E0107]: missing generics for struct `Windows`
   --> $DIR/issue-109071.rs:7:9

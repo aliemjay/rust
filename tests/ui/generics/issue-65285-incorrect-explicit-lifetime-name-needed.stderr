@@ -1,8 +1,8 @@
 error[E0637]: `&` without an explicit lifetime name cannot be used here
-  --> $DIR/issue-65285-incorrect-explicit-lifetime-name-needed.rs:5:37
+  --> $DIR/issue-65285-incorrect-explicit-lifetime-name-needed.rs:5:38
    |
 LL | fn should_error<T>() where T : Into<&u32> {}
-   |                                     ^ explicit lifetime name needed here
+   |                                      ^ explicit lifetime name needed here
    |
 help: consider introducing a higher-ranked lifetime here
    |

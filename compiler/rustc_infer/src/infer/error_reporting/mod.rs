@@ -66,7 +66,6 @@ use rustc_hir::def::DefKind;
 use rustc_hir::def_id::{DefId, LocalDefId};
 use rustc_hir::intravisit::Visitor;
 use rustc_hir::lang_items::LangItem;
-use rustc_hir::Node;
 use rustc_middle::dep_graph::DepContext;
 use rustc_middle::ty::print::with_forced_trimmed_paths;
 use rustc_middle::ty::relate::{self, RelateResult, TypeRelation};
@@ -2319,6 +2318,125 @@ impl<'tcx> TypeErrCtxt<'_, 'tcx> {
             .emit();
     }
 
+    pub fn name_region(
+        &self,
+        generic_param_scope: LocalDefId,
+        lifetime: Region<'tcx>,
+    ) -> Option<(String, Vec<(Span, String)>)> {
+        struct LifetimeVisitor<'tcx, 'a> {
+            tcx: TyCtxt<'tcx>,
+            needle: hir::LifetimeName,
+            new_lt: &'a str,
+            add_lt_suggs: &'a mut Vec<(Span, String)>,
+        }
+
+        impl<'hir, 'tcx> hir::intravisit::Visitor<'hir> for LifetimeVisitor<'tcx, '_> {
+            fn visit_lifetime(&mut self, lt: &'hir hir::Lifetime) {
+                if lt.res == self.needle {
+                    let (pos, span) = lt.suggestion_position();
+                    let new_lt = &self.new_lt;
+                    let sugg = match pos {
+                        hir::LifetimeSuggestionPosition::Normal => format!("{new_lt}"),
+                        hir::LifetimeSuggestionPosition::Ampersand => format!("{new_lt} "),
+                        hir::LifetimeSuggestionPosition::ElidedPath => format!("<{new_lt}>"),
+                        hir::LifetimeSuggestionPosition::ElidedPathArgument => {
+                            format!("{new_lt}, ")
+                        }
+                        hir::LifetimeSuggestionPosition::ObjectDefault => format!("+ {new_lt}"),
+                    };
+                    self.add_lt_suggs.push((span, sugg));
+                }
+            }
+
+            fn visit_nested_item(&mut self, item_id: hir::ItemId) {
+                let item = self.tcx.hir().item(item_id);
+                let hir::ItemKind::OpaqueTy(opaque_ty) = item.kind else {
+                    return;
+                };
+                let Some(new_needle) = opaque_ty
+                    .lifetime_mapping
+                    .iter()
+                    .find(|&(a, _)| a.res == self.needle)
+                    .map(|&(_, b)| hir::LifetimeName::Param(b))
+                else {
+                    return;
+                };
+
+                let prev_needle = std::mem::replace(&mut self.needle, new_needle);
+                self.visit_item(item);
+                self.needle = prev_needle;
+            }
+        }
+
+        let mut lifetime = lifetime;
+        let (lifetime_def_id, lifetime_scope) = loop {
+            let (def_id, scope) = match lifetime.kind() {
+                ty::ReEarlyBound(ty::EarlyBoundRegion { def_id, .. })
+                | ty::ReFree(ty::FreeRegion { bound_region: ty::BrNamed(def_id, _), .. })
+                    if !lifetime.has_name() =>
+                {
+                    (def_id.expect_local(), self.tcx.local_parent(def_id))
+                }
+                _ => return None,
+            };
+            if self.tcx.def_kind(scope) != DefKind::OpaqueTy {
+                break (def_id, scope);
+            }
+            lifetime = self.tcx.map_rpit_lifetime_to_fn_lifetime(def_id);
+        };
+
+        let mut add_lt_suggs = vec![];
+
+        let new_lt = {
+            let generics = self.tcx.generics_of(generic_param_scope);
+            let mut used_names =
+                iter::successors(Some(generics), |g| g.parent.map(|p| self.tcx.generics_of(p)))
+                    .flat_map(|g| &g.params)
+                    .filter(|p| matches!(p.kind, ty::GenericParamDefKind::Lifetime))
+                    .map(|p| p.name)
+                    .collect::<Vec<_>>();
+            if let Some(hir_id) = self.tcx.opt_local_def_id_to_hir_id(generic_param_scope) {
+                // consider late-bound lifetimes ...
+                used_names.extend(self.tcx.late_bound_vars(hir_id).into_iter().filter_map(|p| {
+                    match p {
+                        ty::BoundVariableKind::Region(lt) => lt.get_name(),
+                        _ => None,
+                    }
+                }))
+            }
+            (b'a'..=b'z')
+                .map(|c| format!("'{}", c as char))
+                .find(|candidate| !used_names.iter().any(|e| e.as_str() == candidate))
+                .unwrap_or("'lt".to_string())
+        };
+
+        let mut visitor = LifetimeVisitor {
+            tcx: self.tcx,
+            needle: hir::LifetimeName::Param(lifetime_def_id),
+            add_lt_suggs: &mut add_lt_suggs,
+            new_lt: &new_lt,
+        };
+        match self.tcx.hir().expect_owner(lifetime_scope) {
+            hir::OwnerNode::Item(i) => visitor.visit_item(i),
+            hir::OwnerNode::ForeignItem(i) => visitor.visit_foreign_item(i),
+            hir::OwnerNode::ImplItem(i) => visitor.visit_impl_item(i),
+            hir::OwnerNode::TraitItem(i) => visitor.visit_trait_item(i),
+            hir::OwnerNode::Crate(_) => bug!("OwnerNode::Crate doesn not have generics"),
+        }
+
+        let ast_generics = self.tcx.hir().get_generics(lifetime_scope).unwrap();
+        let sugg = ast_generics
+            .span_for_lifetime_suggestion()
+            .map(|span| (span, format!("{new_lt}, ")))
+            .unwrap_or_else(|| (ast_generics.span, format!("<{new_lt}>")));
+        add_lt_suggs.push(sugg);
+
+        add_lt_suggs.sort();
+        add_lt_suggs.dedup();
+        Some((new_lt, add_lt_suggs))
+    }
+
+    #[instrument(level = "trace", skip(self))]
     pub fn construct_generic_bound_failure(
         &self,
         generic_param_scope: LocalDefId,
@@ -2331,110 +2449,29 @@ impl<'tcx> TypeErrCtxt<'_, 'tcx> {
         // suggest adding an explicit lifetime bound to it.
         let generics = self.tcx.generics_of(generic_param_scope);
         // type_param_span is (span, has_bounds)
-        let mut is_synthetic = false;
-        let mut ast_generics = None;
         let type_param_span = match bound_kind {
-            GenericKind::Param(ref param) => {
+            GenericKind::Param(ref param) if !(generics.has_self && param.index == 0) => {
                 // Account for the case where `param` corresponds to `Self`,
                 // which doesn't have the expected type argument.
-                if !(generics.has_self && param.index == 0) {
-                    let type_param = generics.type_param(param, self.tcx);
-                    is_synthetic = type_param.kind.is_synthetic();
-                    type_param.def_id.as_local().map(|def_id| {
-                        // Get the `hir::Param` to verify whether it already has any bounds.
-                        // We do this to avoid suggesting code that ends up as `T: 'a'b`,
-                        // instead we suggest `T: 'a + 'b` in that case.
-                        let hir_id = self.tcx.hir().local_def_id_to_hir_id(def_id);
-                        ast_generics = self.tcx.hir().get_generics(hir_id.owner.def_id);
-                        let bounds =
-                            ast_generics.and_then(|g| g.bounds_span_for_suggestions(def_id));
-                        // `sp` only covers `T`, change it so that it covers
-                        // `T:` when appropriate
-                        if let Some(span) = bounds {
-                            (span, true)
-                        } else {
-                            let sp = self.tcx.def_span(def_id);
-                            (sp.shrink_to_hi(), false)
-                        }
-                    })
+                let type_param = generics.type_param(param, self.tcx);
+                let def_id = type_param.def_id.expect_local();
+                // Get the `hir::Param` to verify whether it already has any bounds.
+                // We do this to avoid suggesting code that ends up as `T: 'a'b`,
+                // instead we suggest `T: 'a + 'b` in that case.
+                let hir_id = self.tcx.hir().local_def_id_to_hir_id(def_id);
+                let ast_generics = self.tcx.hir().get_generics(hir_id.owner.def_id);
+                let bounds = ast_generics.and_then(|g| g.bounds_span_for_suggestions(def_id));
+                // `sp` only covers `T`, change it so that it covers
+                // `T:` when appropriate
+                if let Some(span) = bounds {
+                    Some((span, true))
                 } else {
-                    None
+                    let sp = self.tcx.def_span(def_id);
+                    Some((sp.shrink_to_hi(), false))
                 }
             }
             _ => None,
         };
-
-        let new_lt = {
-            let mut possible = (b'a'..=b'z').map(|c| format!("'{}", c as char));
-            let lts_names =
-                iter::successors(Some(generics), |g| g.parent.map(|p| self.tcx.generics_of(p)))
-                    .flat_map(|g| &g.params)
-                    .filter(|p| matches!(p.kind, ty::GenericParamDefKind::Lifetime))
-                    .map(|p| p.name.as_str())
-                    .collect::<Vec<_>>();
-            possible
-                .find(|candidate| !lts_names.contains(&&candidate[..]))
-                .unwrap_or("'lt".to_string())
-        };
-
-        let mut add_lt_suggs: Vec<Option<_>> = vec![];
-        if is_synthetic {
-            if let Some(ast_generics) = ast_generics {
-                let named_lifetime_param_exist = ast_generics.params.iter().any(|p| {
-                    matches!(
-                        p.kind,
-                        hir::GenericParamKind::Lifetime { kind: hir::LifetimeParamKind::Explicit }
-                    )
-                });
-                if named_lifetime_param_exist && let [param, ..] = ast_generics.params
-                {
-                    add_lt_suggs.push(Some((
-                        self.tcx.def_span(param.def_id).shrink_to_lo(),
-                        format!("{new_lt}, "),
-                    )));
-                } else {
-                    add_lt_suggs
-                        .push(Some((ast_generics.span.shrink_to_hi(), format!("<{new_lt}>"))));
-                }
-            }
-        } else {
-            if let [param, ..] = &generics.params[..] && let Some(def_id) = param.def_id.as_local()
-            {
-                add_lt_suggs
-                    .push(Some((self.tcx.def_span(def_id).shrink_to_lo(), format!("{new_lt}, "))));
-            }
-        }
-
-        if let Some(ast_generics) = ast_generics {
-            for p in ast_generics.params {
-                if p.is_elided_lifetime() {
-                    if self
-                        .tcx
-                        .sess
-                        .source_map()
-                        .span_to_prev_source(p.span.shrink_to_hi())
-                        .ok()
-                        .is_some_and(|s| *s.as_bytes().last().unwrap() == b'&')
-                    {
-                        add_lt_suggs
-                            .push(Some(
-                                (
-                                    p.span.shrink_to_hi(),
-                                    if let Ok(snip) = self.tcx.sess.source_map().span_to_next_source(p.span)
-                                        && snip.starts_with(' ')
-                                    {
-                                        new_lt.to_string()
-                                    } else {
-                                        format!("{new_lt} ")
-                                    }
-                                )
-                            ));
-                    } else {
-                        add_lt_suggs.push(Some((p.span.shrink_to_hi(), format!("<{new_lt}>"))));
-                    }
-                }
-            }
-        }
 
         let labeled_user_string = match bound_kind {
             GenericKind::Param(ref p) => format!("the parameter type `{p}`"),
@@ -2466,14 +2503,14 @@ impl<'tcx> TypeErrCtxt<'_, 'tcx> {
             type_param_span: Option<(Span, bool)>,
             bound_kind: GenericKind<'tcx>,
             sub: S,
-            add_lt_suggs: Vec<Option<(Span, String)>>,
+            add_lt_suggs: Vec<(Span, String)>,
         ) {
             let msg = "consider adding an explicit lifetime bound";
             if let Some((sp, has_lifetimes)) = type_param_span {
                 let suggestion =
                     if has_lifetimes { format!(" + {sub}") } else { format!(": {sub}") };
                 let mut suggestions = vec![(sp, suggestion)];
-                for add_lt_sugg in add_lt_suggs.into_iter().flatten() {
+                for add_lt_sugg in add_lt_suggs.into_iter() {
                     suggestions.push(add_lt_sugg);
                 }
                 err.multipart_suggestion_verbose(
@@ -2487,86 +2524,24 @@ impl<'tcx> TypeErrCtxt<'_, 'tcx> {
             }
         }
 
-        let new_binding_suggestion =
-            |err: &mut Diagnostic, type_param_span: Option<(Span, bool)>| {
-                let msg = "consider introducing an explicit lifetime bound";
-                if let Some((sp, has_lifetimes)) = type_param_span {
-                    let suggestion =
-                        if has_lifetimes { format!(" + {new_lt}") } else { format!(": {new_lt}") };
-                    let mut sugg =
-                        vec![(sp, suggestion), (span.shrink_to_hi(), format!(" + {new_lt}"))];
-                    for lt in add_lt_suggs.clone().into_iter().flatten() {
-                        sugg.push(lt);
-                        sugg.rotate_right(1);
-                    }
-                    // `MaybeIncorrect` due to issue #41966.
-                    err.multipart_suggestion(msg, sugg, Applicability::MaybeIncorrect);
-                }
-            };
-
-        #[derive(Debug)]
-        enum SubOrigin<'hir> {
-            GAT(&'hir hir::Generics<'hir>),
-            Impl,
-            Trait,
-            Fn,
-            Unknown,
-        }
-        let sub_origin = 'origin: {
-            match *sub {
-                ty::ReEarlyBound(ty::EarlyBoundRegion { def_id, .. }) => {
-                    let node = self.tcx.hir().get_if_local(def_id).unwrap();
-                    match node {
-                        Node::GenericParam(param) => {
-                            for h in self.tcx.hir().parent_iter(param.hir_id) {
-                                break 'origin match h.1 {
-                                    Node::ImplItem(hir::ImplItem {
-                                        kind: hir::ImplItemKind::Type(..),
-                                        generics,
-                                        ..
-                                    })
-                                    | Node::TraitItem(hir::TraitItem {
-                                        kind: hir::TraitItemKind::Type(..),
-                                        generics,
-                                        ..
-                                    }) => SubOrigin::GAT(generics),
-                                    Node::ImplItem(hir::ImplItem {
-                                        kind: hir::ImplItemKind::Fn(..),
-                                        ..
-                                    })
-                                    | Node::TraitItem(hir::TraitItem {
-                                        kind: hir::TraitItemKind::Fn(..),
-                                        ..
-                                    })
-                                    | Node::Item(hir::Item {
-                                        kind: hir::ItemKind::Fn(..), ..
-                                    }) => SubOrigin::Fn,
-                                    Node::Item(hir::Item {
-                                        kind: hir::ItemKind::Trait(..),
-                                        ..
-                                    }) => SubOrigin::Trait,
-                                    Node::Item(hir::Item {
-                                        kind: hir::ItemKind::Impl(..), ..
-                                    }) => SubOrigin::Impl,
-                                    _ => continue,
-                                };
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-                _ => {}
+        let non_opaque_parent = |mut def_id| loop {
+            def_id = self.tcx.parent(def_id);
+            let def_kind = self.tcx.def_kind(def_id);
+            if def_kind != DefKind::OpaqueTy {
+                break (def_id, def_kind);
             }
-            SubOrigin::Unknown
         };
-        debug!(?sub_origin);
 
-        let mut err = match (*sub, sub_origin) {
+        let mut err = match sub.kind() {
             // In the case of GATs, we have to be careful. If we a type parameter `T` on an impl,
             // but a lifetime `'a` on an associated type, then we might need to suggest adding
             // `where T: 'a`. Importantly, this is on the GAT span, not on the `T` declaration.
-            (ty::ReEarlyBound(ty::EarlyBoundRegion { name: _, .. }), SubOrigin::GAT(generics)) => {
+            ty::ReEarlyBound(ty::EarlyBoundRegion { def_id, .. })
+                if matches!(non_opaque_parent(def_id), (_, DefKind::AssocTy)) =>
+            {
                 // Does the required lifetime have a nice name we can print?
+                let lifetime_scope = non_opaque_parent(def_id).0.expect_local();
+                let generics = self.tcx.hir().get_generics(lifetime_scope).unwrap();
                 let mut err = struct_span_err!(
                     self.tcx.sess,
                     span,
@@ -2584,11 +2559,10 @@ impl<'tcx> TypeErrCtxt<'_, 'tcx> {
                 );
                 err
             }
-            (
-                ty::ReEarlyBound(ty::EarlyBoundRegion { name, .. })
-                | ty::ReFree(ty::FreeRegion { bound_region: ty::BrNamed(_, name), .. }),
-                _,
-            ) if name != kw::UnderscoreLifetime => {
+            ty::ReEarlyBound(ty::EarlyBoundRegion { name, .. })
+            | ty::ReFree(ty::FreeRegion { bound_region: ty::BrNamed(_, name), .. })
+                if !matches!(name, kw::UnderscoreLifetime | kw::Empty) =>
+            {
                 // Does the required lifetime have a nice name we can print?
                 let mut err = struct_span_err!(
                     self.tcx.sess,
@@ -2605,7 +2579,7 @@ impl<'tcx> TypeErrCtxt<'_, 'tcx> {
                 err
             }
 
-            (ty::ReStatic, _) => {
+            ty::ReStatic => {
                 // Does the required lifetime have a nice name we can print?
                 let mut err = struct_span_err!(
                     self.tcx.sess,
@@ -2635,27 +2609,10 @@ impl<'tcx> TypeErrCtxt<'_, 'tcx> {
                     "...",
                     None,
                 );
-                if let Some(infer::RelateParamBound(_, t, _)) = origin {
-                    let t = self.resolve_vars_if_possible(t);
-                    match t.kind() {
-                        // We've got:
-                        // fn get_later<G, T>(g: G, dest: &mut T) -> impl FnOnce() + '_
-                        // suggest:
-                        // fn get_later<'a, G: 'a, T>(g: G, dest: &mut T) -> impl FnOnce() + '_ + 'a
-                        ty::Closure(..) | ty::Alias(ty::Opaque, ..) => {
-                            new_binding_suggestion(&mut err, type_param_span);
-                        }
-                        _ => {
-                            binding_suggestion(
-                                &mut err,
-                                type_param_span,
-                                bound_kind,
-                                new_lt,
-                                add_lt_suggs,
-                            );
-                        }
-                    }
-                }
+                let (new_lt, add_lt_suggs) = self
+                    .name_region(generic_param_scope, sub)
+                    .unwrap_or_else(|| (format!("{sub}"), vec![]));
+                binding_suggestion(&mut err, type_param_span, bound_kind, new_lt, add_lt_suggs);
                 err
             }
         };
