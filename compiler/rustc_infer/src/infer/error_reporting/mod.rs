@@ -2491,12 +2491,14 @@ impl<'tcx> TypeErrCtxt<'_, 'tcx> {
 
         'sugg: {
             let msg = "consider adding an explicit lifetime bound";
+            let lt_name =
+                sub.get_name().map_or_else(|| format!("{}", sub), |name| name.to_string());
 
             if (bound_kind, sub).has_infer_regions()
                 || (bound_kind, sub).has_placeholders()
                 || !bound_kind.is_suggestable(self.tcx, false)
             {
-                err.help(format!("{msg} `{bound_kind}: {sub}`..."));
+                err.help(format!("{msg} `{bound_kind}: {lt_name}`..."));
                 break 'sugg;
             }
 
@@ -2538,14 +2540,7 @@ impl<'tcx> TypeErrCtxt<'_, 'tcx> {
                     false => lifetime_scope,
                 };
 
-            let mut suggs = vec![];
-            let lt_name = match self.name_region(sub) {
-                Some((lt_name, add_lt_suggs)) => {
-                    suggs.extend(add_lt_suggs);
-                    lt_name
-                }
-                None => sub.get_name().map_or_else(|| format!("{}", sub), |name| name.to_string()),
-            };
+            let (lt_name, mut suggs) = self.name_region(sub).unwrap_or_else(|| (lt_name, vec![]));
 
             if type_param_span.is_some() && suggestion_scope == type_scope {
                 let (sp, has_lifetimes) = type_param_span.unwrap();
