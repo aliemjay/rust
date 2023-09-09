@@ -2489,7 +2489,7 @@ impl<'tcx> TypeErrCtxt<'_, 'tcx> {
             }
         };
 
-        'sugg: {
+        'suggestion: {
             let msg = "consider adding an explicit lifetime bound";
             let lt_name =
                 sub.get_name().map_or_else(|| format!("{}", sub), |name| name.to_string());
@@ -2499,7 +2499,7 @@ impl<'tcx> TypeErrCtxt<'_, 'tcx> {
                 || !bound_kind.is_suggestable(self.tcx, false)
             {
                 err.help(format!("{msg} `{bound_kind}: {lt_name}`..."));
-                break 'sugg;
+                break 'suggestion;
             }
 
             while self.tcx.def_kind(generic_param_scope) == DefKind::OpaqueTy {
@@ -2507,43 +2507,43 @@ impl<'tcx> TypeErrCtxt<'_, 'tcx> {
             }
 
             // type_param_span is (span, has_bounds)
-            let generics = self.tcx.generics_of(generic_param_scope);
-            let (type_scope, type_param_span) = match bound_kind {
-                // Account for the case where `param` corresponds to `Self`,
-                // which doesn't have the expected type argument.
-                GenericKind::Param(ref param) if !(generics.has_self && param.index == 0) => {
-                    let type_param = generics.type_param(param, self.tcx);
-                    let def_id = type_param.def_id.expect_local();
+            let (type_scope, type_param_sugg_span) = match bound_kind {
+                GenericKind::Param(ref param) => {
+                    let generics = self.tcx.generics_of(generic_param_scope);
+                    let def_id = generics.type_param(param, self.tcx).def_id.expect_local();
+                    let scope = self.tcx.local_def_id_to_hir_id(def_id).owner.def_id;
                     // Get the `hir::Param` to verify whether it already has any bounds.
                     // We do this to avoid suggesting code that ends up as `T: 'a'b`,
                     // instead we suggest `T: 'a + 'b` in that case.
-                    let hir_id = self.tcx.hir().local_def_id_to_hir_id(def_id);
-                    let hir_generics = self.tcx.hir().get_generics(hir_id.owner.def_id).unwrap();
-                    let span = match hir_generics.bounds_span_for_suggestions(def_id) {
-                        Some(span) => (span, true),
-                        None => (self.tcx.def_span(def_id).shrink_to_hi(), false),
+                    let hir_generics = self.tcx.hir().get_generics(scope).unwrap();
+                    let sugg_span = match hir_generics.bounds_span_for_suggestions(def_id) {
+                        Some(span) => Some((span, true)),
+                        // If `param` corresponds to `Self`, no usable suggestion span.
+                        None if generics.has_self && param.index == 0 => None,
+                        None => Some((self.tcx.def_span(def_id).shrink_to_hi(), false)),
                     };
-                    (hir_id.owner.def_id, Some(span))
+                    (scope, sugg_span)
                 }
                 _ => (generic_param_scope, None),
             };
-            let lifetime_scope = match sub.kind() {
-                ty::ReStatic => hir::def_id::CRATE_DEF_ID,
-                _ => match self.tcx.is_suitable_region(sub) {
-                    Some(info) => info.def_id,
-                    None => generic_param_scope,
-                },
-            };
-            let suggestion_scope =
+            let suggestion_scope = {
+                let lifetime_scope = match sub.kind() {
+                    ty::ReStatic => hir::def_id::CRATE_DEF_ID,
+                    _ => match self.tcx.is_suitable_region(sub) {
+                        Some(info) => info.def_id,
+                        None => generic_param_scope,
+                    },
+                };
                 match self.tcx.is_descendant_of(type_scope.into(), lifetime_scope.into()) {
                     true => type_scope,
                     false => lifetime_scope,
-                };
+                }
+            };
 
             let (lt_name, mut suggs) = self.name_region(sub).unwrap_or_else(|| (lt_name, vec![]));
 
-            if type_param_span.is_some() && suggestion_scope == type_scope {
-                let (sp, has_lifetimes) = type_param_span.unwrap();
+            if type_param_sugg_span.is_some() && suggestion_scope == type_scope {
+                let (sp, has_lifetimes) = type_param_sugg_span.unwrap();
                 let suggestion =
                     if has_lifetimes { format!(" + {lt_name}") } else { format!(": {lt_name}") };
                 suggs.push((sp, suggestion))
