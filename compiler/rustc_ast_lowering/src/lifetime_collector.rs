@@ -3,20 +3,19 @@ use rustc_ast::visit::{self, BoundKind, LifetimeCtxt, Visitor};
 use rustc_ast::{GenericBounds, Lifetime, NodeId, PathSegment, PolyTraitRef, Ty, TyKind};
 use rustc_hir::def::{DefKind, LifetimeRes, Res};
 use rustc_middle::span_bug;
-use rustc_middle::ty::{ResolverAstLowering, TyCtxt};
+use rustc_middle::ty::ResolverAstLowering;
 use rustc_span::symbol::{kw, Ident};
 use rustc_span::Span;
 
-struct LifetimeCollectVisitor<'ast, 'tcx> {
-    tcx: TyCtxt<'tcx>,
+struct LifetimeCollectVisitor<'ast> {
     resolver: &'ast ResolverAstLowering,
     current_binders: Vec<NodeId>,
     collected_lifetimes: Vec<Lifetime>,
 }
 
-impl<'ast, 'tcx> LifetimeCollectVisitor<'ast, 'tcx> {
-    fn new(tcx: TyCtxt<'tcx>, resolver: &'ast ResolverAstLowering) -> Self {
-        Self { tcx, resolver, current_binders: Vec::new(), collected_lifetimes: Vec::new() }
+impl<'ast> LifetimeCollectVisitor<'ast> {
+    fn new(resolver: &'ast ResolverAstLowering) -> Self {
+        Self { resolver, current_binders: Vec::new(), collected_lifetimes: Vec::new() }
     }
 
     fn record_lifetime_use(&mut self, lifetime: Lifetime) {
@@ -59,7 +58,7 @@ impl<'ast, 'tcx> LifetimeCollectVisitor<'ast, 'tcx> {
     }
 }
 
-impl<'ast> Visitor<'ast> for LifetimeCollectVisitor<'ast, '_> {
+impl<'ast> Visitor<'ast> for LifetimeCollectVisitor<'ast> {
     fn visit_lifetime(&mut self, lifetime: &'ast Lifetime, _: LifetimeCtxt) {
         self.record_lifetime_use(*lifetime);
     }
@@ -98,8 +97,7 @@ impl<'ast> Visitor<'ast> for LifetimeCollectVisitor<'ast, '_> {
                 self.current_binders.pop();
             }
             TyKind::Ref(None, _) => {
-                let span = self.tcx.sess.source_map().start_point(t.span);
-                self.record_elided_anchor(t.id, span);
+                self.record_elided_anchor(t.id, t.span);
                 visit::walk_ty(self, t);
             }
             _ => {
@@ -110,11 +108,10 @@ impl<'ast> Visitor<'ast> for LifetimeCollectVisitor<'ast, '_> {
 }
 
 pub fn lifetimes_in_bounds(
-    tcx: TyCtxt<'_>,
     resolver: &ResolverAstLowering,
     bounds: &GenericBounds,
 ) -> Vec<Lifetime> {
-    let mut visitor = LifetimeCollectVisitor::new(tcx, resolver);
+    let mut visitor = LifetimeCollectVisitor::new(resolver);
     for bound in bounds {
         visitor.visit_param_bound(bound, BoundKind::Bound);
     }

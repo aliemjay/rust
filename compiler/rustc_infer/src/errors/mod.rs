@@ -401,16 +401,14 @@ impl AddToDiagnostic for AddLifetimeParamsSuggestion<'_> {
             debug!(?lifetime_sup.ident.span);
             debug!(?lifetime_sub.ident.span);
             let make_suggestion = |ident: Ident| {
-                if ident.name == kw::Empty {
-                    (ident.span, format!("{suggestion_param_name}, "))
-                } else if ident.name == kw::UnderscoreLifetime
-                    && ident.span.hi() - ident.span.lo() == BytePos(1)
-                {
-                    // Ampersand (elided without '_)
-                    (ident.span.shrink_to_hi(), format!("{suggestion_param_name} "))
+                let sugg = if ident.name == kw::Empty {
+                    format!("{suggestion_param_name}, ")
+                } else if ident.name == kw::UnderscoreLifetime && ident.span.is_empty() {
+                    format!("{suggestion_param_name} ")
                 } else {
-                    (ident.span, suggestion_param_name.clone())
-                }
+                    suggestion_param_name.clone()
+                };
+                (ident.span, sugg)
             };
             let mut suggestions =
                 vec![make_suggestion(lifetime_sub.ident), make_suggestion(lifetime_sup.ident)];

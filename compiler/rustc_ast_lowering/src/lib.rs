@@ -1327,7 +1327,7 @@ impl<'a, 'hir> LoweringContext<'a, 'hir> {
                     } else {
                         self.next_node_id()
                     };
-                    let span = self.tcx.sess.source_map().start_point(t.span);
+                    let span = self.tcx.sess.source_map().start_point(t.span).shrink_to_hi();
                     Lifetime { ident: Ident::new(kw::UnderscoreLifetime, span), id }
                 });
                 let lifetime = self.lower_lifetime(&region);
@@ -1564,7 +1564,7 @@ impl<'a, 'hir> LoweringContext<'a, 'hir> {
                     // in fn return position, like the `fn test<'a>() -> impl Debug + 'a`
                     // example, we only need to duplicate lifetimes that appear in the
                     // bounds, since those are the only ones that are captured by the opaque.
-                    lifetime_collector::lifetimes_in_bounds(self.tcx, &self.resolver, bounds)
+                    lifetime_collector::lifetimes_in_bounds(&self.resolver, bounds)
                 }
             }
             hir::OpaqueTyOrigin::AsyncFn(..) => {

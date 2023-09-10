@@ -2344,17 +2344,19 @@ impl<'tcx> TypeErrCtxt<'_, 'tcx> {
                 }
             }
 
-            fn visit_nested_item(&mut self, item_id: hir::ItemId) {
-                let item = self.tcx.hir().item(item_id);
-                let hir::ItemKind::OpaqueTy(opaque_ty) = item.kind else {
-                    return;
+            fn visit_ty(&mut self, ty: &'hir hir::Ty<'hir>) {
+                let hir::TyKind::OpaqueDef(item_id, _, _) = ty.kind else {
+                    return hir::intravisit::walk_ty(self, ty);
                 };
+                let opaque_ty = self.tcx.hir().item(item_id).expect_opaque_ty();
                 if let Some(&(_, b)) =
                     opaque_ty.lifetime_mapping.iter().find(|&(a, _)| a.res == self.needle)
                 {
                     let prev_needle =
                         std::mem::replace(&mut self.needle, hir::LifetimeName::Param(b));
-                    self.visit_item(item);
+                    for bound in opaque_ty.bounds {
+                        self.visit_param_bound(bound);
+                    }
                     self.needle = prev_needle;
                 }
             }
@@ -2415,8 +2417,6 @@ impl<'tcx> TypeErrCtxt<'_, 'tcx> {
             .unwrap_or_else(|| (ast_generics.span, format!("<{new_lt}>")));
         add_lt_suggs.push(sugg);
 
-        add_lt_suggs.sort();
-        add_lt_suggs.dedup();
         Some((new_lt, add_lt_suggs))
     }
 
