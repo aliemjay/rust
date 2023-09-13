@@ -12,17 +12,13 @@ use rustc_data_structures::fx::FxIndexSet;
 use rustc_errors::{AddToDiagnostic, Applicability, Diagnostic, ErrorGuaranteed, MultiSpan};
 use rustc_hir::def_id::DefId;
 use rustc_hir::intravisit::{walk_ty, Visitor};
-use rustc_hir::{
-    self as hir, GenericBound, GenericParamKind, Item, ItemKind, Lifetime, LifetimeName, Node,
-    TyKind,
-};
+use rustc_hir::{self as hir, GenericBound, Item, ItemKind, Lifetime, LifetimeName, Node, TyKind};
 use rustc_middle::ty::{
     self, AssocItemContainer, StaticLifetimeVisitor, Ty, TyCtxt, TypeSuperVisitable, TypeVisitor,
 };
 use rustc_span::symbol::Ident;
 use rustc_span::Span;
 
-use rustc_span::def_id::LocalDefId;
 use std::ops::ControlFlow;
 
 impl<'a, 'tcx> NiceRegionError<'a, 'tcx> {
@@ -243,11 +239,10 @@ impl<'a, 'tcx> NiceRegionError<'a, 'tcx> {
             tcx,
             &mut err,
             fn_returns,
-            lifetime_name,
+            *sup_r,
             Some(arg),
             captures,
             Some((param.param_ty_span, param.param_ty.to_string())),
-            Some(anon_reg_sup.def_id),
         );
 
         let reported = err.emit();
@@ -255,18 +250,18 @@ impl<'a, 'tcx> NiceRegionError<'a, 'tcx> {
     }
 }
 
-pub fn suggest_new_region_bound(
-    tcx: TyCtxt<'_>,
+pub fn suggest_new_region_bound<'tcx>(
+    tcx: TyCtxt<'tcx>,
     err: &mut Diagnostic,
     fn_returns: Vec<&rustc_hir::Ty<'_>>,
-    lifetime_name: String,
+    lifetime: ty::Region<'tcx>,
     arg: Option<String>,
     captures: String,
     param: Option<(Span, String)>,
-    scope_def_id: Option<LocalDefId>,
 ) {
     debug!("try_report_static_impl_trait: fn_return={:?}", fn_returns);
     // FIXME: account for the need of parens in `&(dyn Trait + '_)`
+    let lifetime_name = lifetime.to_string();
     let consider = "consider changing";
     let declare = "to declare that";
     let explicit = format!("you can add an explicit `{lifetime_name}` lifetime bound");
@@ -281,9 +276,12 @@ pub fn suggest_new_region_bound(
         }
         match fn_return.kind {
             TyKind::OpaqueDef(item_id, _, _) => {
-                let item = tcx.hir().item(item_id);
-                let ItemKind::OpaqueTy(opaque) = &item.kind else {
-                    return;
+                let opaque = tcx.hir().item(item_id).expect_opaque_ty();
+
+                let mut suggs = vec![];
+                let lifetime_name = match tcx.is_suitable_region(lifetime) {
+                    Some(info) => info.suggest_name_in_return_position(tcx, &mut suggs),
+                    None => lifetime.to_string(),
                 };
 
                 // Get the identity type for this RPIT
@@ -297,10 +295,10 @@ pub fn suggest_new_region_bound(
                     _ => None,
                 }) {
                     if let Some(explicit_static) = &explicit_static {
-                        err.span_suggestion_verbose(
-                            span,
+                        suggs.push((span, lifetime_name));
+                        err.multipart_suggestion_verbose(
                             format!("{consider} `{ty}`'s {explicit_static}"),
-                            &lifetime_name,
+                            suggs,
                             Applicability::MaybeIncorrect,
                         );
                     }
@@ -318,65 +316,18 @@ pub fn suggest_new_region_bound(
                         if ident.name.to_string() == lifetime_name )
                 }) {
                 } else {
-                    // get a lifetime name of existing named lifetimes if any
-                    let existing_lt_name = if let Some(id) = scope_def_id
-                        && let Some(generics) = tcx.hir().get_generics(id)
-                        && let named_lifetimes = generics
-                        .params
-                        .iter()
-                        .filter(|p| matches!(p.kind, GenericParamKind::Lifetime { kind: hir::LifetimeParamKind::Explicit }))
-                        .map(|p| { if let hir::ParamName::Plain(name) = p.name {Some(name.to_string())} else {None}})
-                        .filter(|n| ! matches!(n, None))
-                        .collect::<Vec<_>>()
-                        && named_lifetimes.len() > 0 {
-                        named_lifetimes[0].clone()
-                    } else {
-                        None
-                    };
-                    let name = if let Some(name) = &existing_lt_name { name } else { "'a" };
-                    // if there are more than one elided lifetimes in inputs, the explicit `'_` lifetime cannot be used.
-                    // introducing a new lifetime `'a` or making use of one from existing named lifetimes if any
-                    if let Some(id) = scope_def_id
-                        && let Some(generics) = tcx.hir().get_generics(id)
-                        && let mut spans_suggs = generics
-                            .params
-                            .iter()
-                            .filter(|p| p.is_elided_lifetime())
-                            .map(|p|
-                                  if p.span.hi() - p.span.lo() == rustc_span::BytePos(1) { // Ampersand (elided without '_)
-                                      (p.span.shrink_to_hi(),format!("{name} "))
-                                  } else { // Underscore (elided with '_)
-                                      (p.span, name.to_string())
-                                  }
-                            )
-                            .collect::<Vec<_>>()
-                        && spans_suggs.len() > 1
-                    {
-                        let use_lt =
-                        if existing_lt_name == None {
-                            spans_suggs.push((generics.span.shrink_to_hi(), format!("<{name}>")));
-                            format!("you can introduce a named lifetime parameter `{name}`")
-                        } else {
-                            // make use the existing named lifetime
-                            format!("you can use the named lifetime parameter `{name}`")
-                        };
-                        spans_suggs
-                            .push((fn_return.span.shrink_to_hi(), format!(" + {name} ")));
-                        err.multipart_suggestion_verbose(
+                    suggs.push((fn_return.span.shrink_to_hi(), format!(" + {lifetime_name} ")));
+                    let use_lt =
+                        lifetime.has_name().then(|| explicit.clone()).unwrap_or_else(|| {
                             format!(
-                                "{declare} `{ty}` {captures}, {use_lt}",
-                            ),
-                            spans_suggs,
-                            Applicability::MaybeIncorrect,
-                        );
-                    } else {
-                        err.span_suggestion_verbose(
-                            fn_return.span.shrink_to_hi(),
-                            format!("{declare} `{ty}` {captures}, {explicit}",),
-                            &plus_lt,
-                            Applicability::MaybeIncorrect,
-                        );
-                    }
+                                "you can introduce a named lifetime parameter `{lifetime_name}`"
+                            )
+                        });
+                    err.multipart_suggestion_verbose(
+                        format!("{declare} `{ty}` {captures}, {use_lt}",),
+                        suggs,
+                        Applicability::MaybeIncorrect,
+                    );
                 }
             }
             TyKind::TraitObject(_, lt, _) => {

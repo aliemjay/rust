@@ -35,7 +35,7 @@ use crate::session_diagnostics::{
     LifetimeReturnCategoryErr, RequireStaticErr, VarHereDenote,
 };
 
-use super::{OutlivesSuggestionBuilder, RegionName};
+use super::OutlivesSuggestionBuilder;
 use crate::region_infer::{BlameConstraint, ExtraConstraintInfo};
 use crate::{
     nll::ConstraintDescription,
@@ -779,7 +779,7 @@ impl<'a, 'tcx> MirBorrowckCtxt<'a, 'tcx> {
 
         diag.subdiagnostic(err_category);
 
-        self.add_static_impl_trait_suggestion(&mut diag, *fr, fr_name, *outlived_fr);
+        self.add_static_impl_trait_suggestion(&mut diag, *fr, *outlived_fr);
         self.suggest_adding_lifetime_params(&mut diag, *fr, *outlived_fr);
         self.suggest_move_on_borrowing_closure(&mut diag);
 
@@ -799,8 +799,6 @@ impl<'a, 'tcx> MirBorrowckCtxt<'a, 'tcx> {
         &self,
         diag: &mut Diagnostic,
         fr: RegionVid,
-        // We need to pass `fr_name` - computing it again will label it twice.
-        fr_name: RegionName,
         outlived_fr: RegionVid,
     ) {
         if let (Some(f), Some(outlived_f)) =
@@ -822,8 +820,6 @@ impl<'a, 'tcx> MirBorrowckCtxt<'a, 'tcx> {
                 return;
             };
 
-            let lifetime = if f.has_name() { fr_name.name } else { kw::UnderscoreLifetime };
-
             let arg = match param.param.pat.simple_ident() {
                 Some(simple_ident) => format!("argument `{simple_ident}`"),
                 None => "the argument".to_string(),
@@ -835,11 +831,10 @@ impl<'a, 'tcx> MirBorrowckCtxt<'a, 'tcx> {
                     self.infcx.tcx,
                     diag,
                     fn_returns,
-                    lifetime.to_string(),
+                    f,
                     Some(arg),
                     captures,
                     Some((param.param_ty_span, param.param_ty.to_string())),
-                    Some(suitable_region.def_id),
                 );
                 return;
             }

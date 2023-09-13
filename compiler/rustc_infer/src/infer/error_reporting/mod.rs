@@ -342,11 +342,10 @@ pub fn unexpected_hidden_region_diagnostic<'tcx>(
                     tcx,
                     &mut err,
                     fn_returns,
-                    hidden_region.to_string(),
+                    hidden_region,
                     None,
                     format!("captures `{hidden_region}`"),
                     None,
-                    Some(reg_info.def_id),
                 )
             }
         }
@@ -2318,108 +2317,6 @@ impl<'tcx> TypeErrCtxt<'_, 'tcx> {
             .emit();
     }
 
-    pub fn name_region(&self, lifetime: Region<'tcx>) -> Option<(String, Vec<(Span, String)>)> {
-        struct LifetimeVisitor<'tcx, 'a> {
-            tcx: TyCtxt<'tcx>,
-            needle: hir::LifetimeName,
-            new_lt: &'a str,
-            add_lt_suggs: &'a mut Vec<(Span, String)>,
-        }
-
-        impl<'hir, 'tcx> hir::intravisit::Visitor<'hir> for LifetimeVisitor<'tcx, '_> {
-            fn visit_lifetime(&mut self, lt: &'hir hir::Lifetime) {
-                if lt.res == self.needle {
-                    let (pos, span) = lt.suggestion_position();
-                    let new_lt = &self.new_lt;
-                    let sugg = match pos {
-                        hir::LifetimeSuggestionPosition::Normal => format!("{new_lt}"),
-                        hir::LifetimeSuggestionPosition::Ampersand => format!("{new_lt} "),
-                        hir::LifetimeSuggestionPosition::ElidedPath => format!("<{new_lt}>"),
-                        hir::LifetimeSuggestionPosition::ElidedPathArgument => {
-                            format!("{new_lt}, ")
-                        }
-                        hir::LifetimeSuggestionPosition::ObjectDefault => format!("+ {new_lt}"),
-                    };
-                    self.add_lt_suggs.push((span, sugg));
-                }
-            }
-
-            fn visit_ty(&mut self, ty: &'hir hir::Ty<'hir>) {
-                let hir::TyKind::OpaqueDef(item_id, _, _) = ty.kind else {
-                    return hir::intravisit::walk_ty(self, ty);
-                };
-                let opaque_ty = self.tcx.hir().item(item_id).expect_opaque_ty();
-                if let Some(&(_, b)) =
-                    opaque_ty.lifetime_mapping.iter().find(|&(a, _)| a.res == self.needle)
-                {
-                    let prev_needle =
-                        std::mem::replace(&mut self.needle, hir::LifetimeName::Param(b));
-                    for bound in opaque_ty.bounds {
-                        self.visit_param_bound(bound);
-                    }
-                    self.needle = prev_needle;
-                }
-            }
-        }
-
-        let (lifetime_def_id, lifetime_scope) = match self.tcx.is_suitable_region(lifetime)? {
-            ty::FreeRegionInfo { def_id, boundregion: ty::BrNamed(lt_def_id, _), .. }
-                if !lifetime.has_name() =>
-            {
-                (lt_def_id.expect_local(), def_id)
-            }
-            _ => return None,
-        };
-
-        let mut add_lt_suggs = vec![];
-
-        let new_lt = {
-            let generics = self.tcx.generics_of(lifetime_scope);
-            let mut used_names =
-                iter::successors(Some(generics), |g| g.parent.map(|p| self.tcx.generics_of(p)))
-                    .flat_map(|g| &g.params)
-                    .filter(|p| matches!(p.kind, ty::GenericParamDefKind::Lifetime))
-                    .map(|p| p.name)
-                    .collect::<Vec<_>>();
-            if let Some(hir_id) = self.tcx.opt_local_def_id_to_hir_id(lifetime_scope) {
-                // consider late-bound lifetimes ...
-                used_names.extend(self.tcx.late_bound_vars(hir_id).into_iter().filter_map(|p| {
-                    match p {
-                        ty::BoundVariableKind::Region(lt) => lt.get_name(),
-                        _ => None,
-                    }
-                }))
-            }
-            (b'a'..=b'z')
-                .map(|c| format!("'{}", c as char))
-                .find(|candidate| !used_names.iter().any(|e| e.as_str() == candidate))
-                .unwrap_or("'lt".to_string())
-        };
-
-        let mut visitor = LifetimeVisitor {
-            tcx: self.tcx,
-            needle: hir::LifetimeName::Param(lifetime_def_id),
-            add_lt_suggs: &mut add_lt_suggs,
-            new_lt: &new_lt,
-        };
-        match self.tcx.hir().expect_owner(lifetime_scope) {
-            hir::OwnerNode::Item(i) => visitor.visit_item(i),
-            hir::OwnerNode::ForeignItem(i) => visitor.visit_foreign_item(i),
-            hir::OwnerNode::ImplItem(i) => visitor.visit_impl_item(i),
-            hir::OwnerNode::TraitItem(i) => visitor.visit_trait_item(i),
-            hir::OwnerNode::Crate(_) => bug!("OwnerNode::Crate doesn not have generics"),
-        }
-
-        let ast_generics = self.tcx.hir().get_generics(lifetime_scope).unwrap();
-        let sugg = ast_generics
-            .span_for_lifetime_suggestion()
-            .map(|span| (span, format!("{new_lt}, ")))
-            .unwrap_or_else(|| (ast_generics.span, format!("<{new_lt}>")));
-        add_lt_suggs.push(sugg);
-
-        Some((new_lt, add_lt_suggs))
-    }
-
     #[instrument(level = "trace", skip(self))]
     pub fn construct_generic_bound_failure(
         &self,
@@ -2527,12 +2424,9 @@ impl<'tcx> TypeErrCtxt<'_, 'tcx> {
                 _ => (generic_param_scope, None),
             };
             let suggestion_scope = {
-                let lifetime_scope = match sub.kind() {
-                    ty::ReStatic => hir::def_id::CRATE_DEF_ID,
-                    _ => match self.tcx.is_suitable_region(sub) {
-                        Some(info) => info.def_id,
-                        None => generic_param_scope,
-                    },
+                let lifetime_scope = match self.tcx.is_suitable_region(sub) {
+                    Some(info) => info.def_id,
+                    None => hir::def_id::CRATE_DEF_ID,
                 };
                 match self.tcx.is_descendant_of(type_scope.into(), lifetime_scope.into()) {
                     true => type_scope,
@@ -2540,7 +2434,11 @@ impl<'tcx> TypeErrCtxt<'_, 'tcx> {
                 }
             };
 
-            let (lt_name, mut suggs) = self.name_region(sub).unwrap_or_else(|| (lt_name, vec![]));
+            let mut suggs = vec![];
+            let lt_name = match self.tcx.is_suitable_region(sub) {
+                Some(info) => info.suggest_name(self.tcx, &mut suggs),
+                None => "'static".to_string(),
+            };
 
             if type_param_sugg_span.is_some() && suggestion_scope == type_scope {
                 let (sp, has_lifetimes) = type_param_sugg_span.unwrap();

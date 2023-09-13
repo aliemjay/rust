@@ -449,6 +449,136 @@ pub struct FreeRegionInfo {
     pub is_impl_item: bool,
 }
 
+impl FreeRegionInfo {
+    fn param_def_id(&self) -> LocalDefId {
+        match self.boundregion {
+            ty::BrNamed(def_id, _) => def_id.expect_local(),
+            _ => bug!(),
+        }
+    }
+
+    fn name(&self) -> Option<Symbol> {
+        match self.boundregion {
+            ty::BrNamed(_, name) => match name {
+                kw::Empty | kw::UnderscoreLifetime => None,
+                other_name => Some(other_name),
+            },
+            _ => bug!(),
+        }
+    }
+
+    pub fn suggest_name(&self, tcx: TyCtxt<'_>, add_lt_suggs: &mut Vec<(Span, String)>) -> String {
+        struct LifetimeVisitor<'tcx, 'a> {
+            tcx: TyCtxt<'tcx>,
+            needle: hir::LifetimeName,
+            new_lt: &'a str,
+            add_lt_suggs: &'a mut Vec<(Span, String)>,
+        }
+
+        impl<'hir, 'tcx> hir::intravisit::Visitor<'hir> for LifetimeVisitor<'tcx, '_> {
+            fn visit_lifetime(&mut self, lt: &'hir hir::Lifetime) {
+                if lt.res == self.needle {
+                    let (pos, span) = lt.suggestion_position();
+                    let new_lt = &self.new_lt;
+                    let sugg = match pos {
+                        hir::LifetimeSuggestionPosition::Normal => format!("{new_lt}"),
+                        hir::LifetimeSuggestionPosition::Ampersand => format!("{new_lt} "),
+                        hir::LifetimeSuggestionPosition::ElidedPath => format!("<{new_lt}>"),
+                        hir::LifetimeSuggestionPosition::ElidedPathArgument => {
+                            format!("{new_lt}, ")
+                        }
+                        hir::LifetimeSuggestionPosition::ObjectDefault => format!("+ {new_lt}"),
+                    };
+                    self.add_lt_suggs.push((span, sugg));
+                }
+            }
+
+            fn visit_ty(&mut self, ty: &'hir hir::Ty<'hir>) {
+                let hir::TyKind::OpaqueDef(item_id, _, _) = ty.kind else {
+                    return hir::intravisit::walk_ty(self, ty);
+                };
+                let opaque_ty = self.tcx.hir().item(item_id).expect_opaque_ty();
+                if let Some(&(_, b)) =
+                    opaque_ty.lifetime_mapping.iter().find(|&(a, _)| a.res == self.needle)
+                {
+                    let prev_needle =
+                        std::mem::replace(&mut self.needle, hir::LifetimeName::Param(b));
+                    for bound in opaque_ty.bounds {
+                        self.visit_param_bound(bound);
+                    }
+                    self.needle = prev_needle;
+                }
+            }
+        }
+
+        if let Some(name) = self.name() {
+            return name.to_string();
+        }
+
+        let new_lt = {
+            let generics = tcx.generics_of(self.def_id);
+            let mut used_names =
+                iter::successors(Some(generics), |g| g.parent.map(|p| tcx.generics_of(p)))
+                    .flat_map(|g| &g.params)
+                    .filter(|p| matches!(p.kind, ty::GenericParamDefKind::Lifetime))
+                    .map(|p| p.name)
+                    .collect::<Vec<_>>();
+            if let Some(hir_id) = tcx.opt_local_def_id_to_hir_id(self.def_id) {
+                // consider late-bound lifetimes ...
+                used_names.extend(tcx.late_bound_vars(hir_id).into_iter().filter_map(|p| match p {
+                    ty::BoundVariableKind::Region(lt) => lt.get_name(),
+                    _ => None,
+                }))
+            }
+            (b'a'..=b'z')
+                .map(|c| format!("'{}", c as char))
+                .find(|candidate| !used_names.iter().any(|e| e.as_str() == candidate))
+                .unwrap_or("'lt".to_string())
+        };
+
+        let mut visitor = LifetimeVisitor {
+            tcx,
+            needle: hir::LifetimeName::Param(self.param_def_id()),
+            add_lt_suggs,
+            new_lt: &new_lt,
+        };
+        match tcx.hir().expect_owner(self.def_id) {
+            hir::OwnerNode::Item(i) => visitor.visit_item(i),
+            hir::OwnerNode::ForeignItem(i) => visitor.visit_foreign_item(i),
+            hir::OwnerNode::ImplItem(i) => visitor.visit_impl_item(i),
+            hir::OwnerNode::TraitItem(i) => visitor.visit_trait_item(i),
+            hir::OwnerNode::Crate(_) => bug!("OwnerNode::Crate doesn not have generics"),
+        }
+
+        let ast_generics = tcx.hir().get_generics(self.def_id).unwrap();
+        let sugg = ast_generics
+            .span_for_lifetime_suggestion()
+            .map(|span| (span, format!("{new_lt}, ")))
+            .unwrap_or_else(|| (ast_generics.span, format!("<{new_lt}>")));
+        add_lt_suggs.push(sugg);
+
+        new_lt
+    }
+
+    pub fn suggest_name_in_return_position(
+        &self,
+        tcx: TyCtxt<'_>,
+        add_lt_suggs: &mut Vec<(Span, String)>,
+    ) -> String {
+        let params = tcx.hir().get_generics(self.def_id).unwrap().params;
+        if params
+            .iter()
+            .filter(|p| matches!(p.kind, hir::GenericParamKind::Lifetime { .. }))
+            .count()
+            == 1
+        {
+            self.name().map_or_else(|| kw::UnderscoreLifetime.to_string(), |name| name.to_string())
+        } else {
+            self.suggest_name(tcx, add_lt_suggs)
+        }
+    }
+}
+
 /// This struct should only be created by `create_def`.
 #[derive(Copy, Clone)]
 pub struct TyCtxtFeed<'tcx, KEY: Copy> {
