@@ -1587,6 +1587,22 @@ impl<'tcx> OpaqueHiddenType<'tcx> {
     ) -> Self {
         let OpaqueTypeKey { def_id, args } = opaque_type_key;
 
+        struct CollectUsedParams<'tcx>(Vec<Ty<'tcx>>);
+        impl<'tcx> ty::TypeVisitor<TyCtxt<'tcx>> for CollectUsedParams<'tcx> {
+            fn visit_ty(&mut self, t: Ty<'tcx>) -> ControlFlow<!> {
+                match t.kind() {
+                    ty::Param(_) => {
+                        self.0.push(t);
+                        ControlFlow::Continue(())
+                    }
+                    ty::Alias(ty::Opaque, _) => ControlFlow::Continue(()),
+                    _ => t.super_visit_with(self),
+                }
+            }
+        }
+        let mut collector = CollectUsedParams(vec![]);
+        tcx.explicit_item_bounds(def_id).skip_binder().visit_with(&mut collector);
+
         // Use args to build up a reverse map from regions to their
         // identity mappings. This is necessary because of `impl
         // Trait` lifetimes are computed by replacing existing
@@ -1599,7 +1615,9 @@ impl<'tcx> OpaqueHiddenType<'tcx> {
         // This zip may have several times the same lifetime in `args` paired with a different
         // lifetime from `id_args`. Simply `collect`ing the iterator is the correct behaviour:
         // it will pick the last one, which is the one we introduced in the impl-trait desugaring.
-        let map = args.iter().zip(id_args).collect();
+        let map = std::iter::zip(args, id_args)
+            .filter(|&(_, id_arg)| !id_arg.as_type().is_some_and(|t| !collector.0.contains(&t)))
+            .collect();
         debug!("map = {:#?}", map);
 
         // Convert the type from the function into a type valid outside
